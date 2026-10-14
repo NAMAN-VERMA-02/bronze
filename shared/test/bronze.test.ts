@@ -5,6 +5,7 @@ import {
   legalActions,
   allBuildOptions,
   resolveBuild,
+  resolveScout,
   ironPlan,
   coalPlan,
   resourceOnBoard,
@@ -130,6 +131,26 @@ function tile(over: Partial<PlacedIndustry>): PlacedIndustry {
   s.placed[0].resources = 0
   s.placed[0].flipped = true
   check('rival coal mine can be overbuilt once no coal is left', canOver())
+}
+
+// ------------------------------ Scout rule ------------------------------
+{
+  const s = createInitialGameState(seats(2), 21)
+  const pid = currentPlayer(s).id
+  const p = playerById(s, pid)
+  const before = p.hand.length
+  const err = resolveScout(s, pid)
+  check('scouting trades three cards for a wild location and a wild industry',
+    !err && p.hand.length === before - 3 + 2 && p.hand.some((c) => c.kind === 'wild-location') && p.hand.some((c) => c.kind === 'wild-industry'), String(err ?? ''))
+  check('scouting again while holding a wild is refused', resolveScout(s, pid) !== null)
+  s.placed = [tile({ ownerId: pid, cityId: 'birmingham', key: 'birmingham:0', kind: 'cotton', resources: 0 })]
+  p.money = 60
+  const wildInd = p.hand.find((c) => c.kind === 'wild-industry')!
+  const kinds = new Set(allBuildOptions(s, pid).filter((o) => o.cardId === wildInd.id).map((o) => o.kind))
+  check('a wild industry card can build more than just coal', kinds.size > 1 && [...kinds].some((k) => k !== 'coal'), [...kinds].join(','))
+  s.wildLocPool = 0
+  p.hand = p.hand.filter((c) => !c.kind.startsWith('wild'))
+  check('scouting is not offered when a wild pool is empty', !legalActions(s, pid).SCOUT)
 }
 
 const s0 = createInitialGameState(seats(2), 42)
