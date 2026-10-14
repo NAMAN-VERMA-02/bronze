@@ -607,11 +607,11 @@ function init(host: HTMLElement, loading: HTMLElement): void {
           'The active table will be abandoned.',
           'LEAVE TABLE',
           () => {
-            location.href = '/'
+            location.href = './'
           },
         )
       } else {
-        location.href = '/'
+        location.href = './'
       }
     })
   }
@@ -994,7 +994,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     },
     onLeaveLobby: () => {
       currentTable = null
-      location.href = '/' // deterministic: LOBBY → HOME page
+      location.href = './' // deterministic: LOBBY → HOME page
     },    onMusic: (on) => {
       audioUI.music = on
       applyAudio()
@@ -1028,7 +1028,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
       hud.confirmLeave(
         () => history.pushState({ kb: 'game' }, ''),
         () => {
-          location.href = '/'
+          location.href = './'
         },
       )
     } else if (phase === 'game' || phase === 'results') {

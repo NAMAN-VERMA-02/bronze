@@ -58,10 +58,10 @@ export class Screens {
     this.q('#navAi').addEventListener('click', () => this.showPanel('create', { ai: true }))
     // Deterministic navigation: panel BACK always returns to the HOME page.
     this.q('#backHome1').addEventListener('click', () => {
-      location.href = '/'
+      location.href = './'
     })
     this.q('#backHome2').addEventListener('click', () => {
-      location.href = '/'
+      location.href = './'
     })
 
     // CREATE (doubles as PLAY WITH AI config when .ai-mode)

@@ -15,5 +15,10 @@
   "dependencies": {
     "gsap": "^3.15.0",
     "three": "^0.185.1"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./bronze": "./src/bronze/state.ts",
+    "./bronze-ai": "./src/bronze/ai.ts"
   }
 }
