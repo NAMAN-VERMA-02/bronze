@@ -1,5 +1,6 @@
 import type { ActionType, GameState, BuildOption } from './state'
-import { currentPlayer, legalActions, playerById } from './state'
+import { CITY_BY_ID, currentPlayer, legalActions, playerById } from './state'
+import type { Card } from './state'
 
 // Victorian DOM HUD: engraved plates, parchment cards, ledger log.
 // All styling lives in kinetic.html; this module only manages structure/state.
@@ -23,6 +24,39 @@ export interface HudHooks {
   /** Double click (event.detail ≥ 2) — rule-validated use/confirm. */
   onCardUse(cardId: string): void
   onReset(): void
+}
+
+const INDUSTRY_LABEL: Record<string, string> = {
+  coal: 'Coal Mine',
+  iron: 'Iron Works',
+  cotton: 'Cotton Mill',
+  manufacturer: 'Manufacturer',
+  pottery: 'Pottery',
+  brewery: 'Brewery',
+}
+
+function cardTip(c: Card): string {
+  if (c.kind === 'wild-location') return 'Wild Location: build any industry in any town you can reach.'
+  if (c.kind === 'wild-industry') return `Wild ${INDUSTRY_LABEL[c.industry ?? 'coal']}: build this industry in any town.`
+  const city = c.cityId ? CITY_BY_ID.get(c.cityId) : undefined
+  return city ? `${city.name}: build there, or build any industry connected to your network.` : ''
+}
+
+function emblemSvg(c: Card, kind?: string): string {
+  const st = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"'
+  if (c.kind === 'wild-location') {
+    return `<svg viewBox="0 0 48 40" ${st}><path d="M24 4l4.2 9 9.8 1.2-7.2 6.8 1.9 9.7L24 25.8 15.3 30.7l1.9-9.7L10 14.2 19.8 13z"/></svg>`
+  }
+  if (c.kind === 'wild-industry') {
+    return `<svg viewBox="0 0 48 40" ${st}><circle cx="24" cy="20" r="6"/><path d="M24 6v5M24 29v5M10 20h5M33 20h5M14 10l3.5 3.5M30.5 26.5L34 30M34 10l-3.5 3.5M17.5 26.5L14 30"/></svg>`
+  }
+  if (kind === 'merchant') {
+    return `<svg viewBox="0 0 48 40" ${st}><path d="M6 34h36M10 34V16l14-8 14 8v18M18 34v-9h12v9"/><circle cx="24" cy="16" r="2.5"/></svg>`
+  }
+  if (kind === 'farm-brewery') {
+    return `<svg viewBox="0 0 48 40" ${st}><path d="M12 14h20v18a3 3 0 01-3 3H15a3 3 0 01-3-3zM32 18h4a3 3 0 010 8h-4M16 9c0 3 3 3 3 6M22 8c0 3 3 3 3 6"/></svg>`
+  }
+  return `<svg viewBox="0 0 48 40" ${st}><path d="M4 34h40M8 34V20h8v14M16 34V12h9v22M25 34V22h7v12M32 34V16h8v18"/><path d="M19 8c0-3 3-3 3-6M13 12c0-2 2-2 2-4"/></svg>`
 }
 
 export class Hud {
@@ -195,13 +229,9 @@ export class Hud {
       const card = document.createElement('div')
       card.className = 'vcard' + (c.id === selectedCardId ? ' sel' : '')
       card.dataset.cardId = c.id
-      const title =
-        c.kind === 'wild-location'
-          ? 'WILD'
-          : c.kind === 'wild-industry'
-            ? `WILD ${(c.industry ?? '').toUpperCase()}`
-            : (c.cityId ?? '').charAt(0).toUpperCase() + (c.cityId ?? '').slice(1)
-      card.appendChild(this.cardFace(title, cur.css))
+      card.title = cardTip(c)
+      card.appendChild(this.cardFace(c, cur.css))
+      handEl.appendChild(card)
     })
     if (cur.hand.length === 0) {
       handEl.innerHTML = '<div class="nohand dim">no cards</div>'
@@ -219,13 +249,32 @@ export class Hud {
       .join('')
   }
 
-  private cardFace(title: string, tintCss: string): HTMLElement {
-    // Lightweight DOM card (canvas faces reserved for future art pass).
+  private cardFace(c: Card, tintCss: string): HTMLElement {
     const face = document.createElement('div')
-    face.className = 'vcard-face'
+    face.className = 'vcard-face kind-' + c.kind
     face.style.setProperty('--tint', tintCss)
-    face.innerHTML = `<div class="vc-emblem"></div><div class="vc-title">${title}</div>
-      <div class="vc-sub">CITY CHARTER</div><div class="vc-brand">B R A S S</div>`
+    const city = c.cityId ? CITY_BY_ID.get(c.cityId) : undefined
+    const title =
+      c.kind === 'wild-location' ? 'Wild Location' : c.kind === 'wild-industry' ? INDUSTRY_LABEL[c.industry ?? 'coal'] : (city?.name ?? '')
+    const sub =
+      c.kind === 'wild-location'
+        ? 'ANY TOWN'
+        : c.kind === 'wild-industry'
+          ? 'ANY INDUSTRY'
+          : city?.kind === 'merchant'
+            ? 'MERCHANT'
+            : city?.kind === 'farm-brewery'
+              ? 'FARM BREWERY'
+              : city?.town
+                ? 'TOWN'
+                : 'CITY'
+    const pips = city ? '<i></i>'.repeat(Math.min(city.slots, 4)) : ''
+    face.innerHTML = `<div class="vc-kind">${c.kind === 'location' ? 'LOCATION' : 'WILD'}</div>
+      <div class="vc-emblem">${emblemSvg(c, city?.kind)}</div>
+      <div class="vc-title">${escapeHtml(title)}</div>
+      <div class="vc-sub">${sub}</div>
+      <div class="vc-pips">${pips}</div>
+      <div class="vc-brand">BRONZE</div>`
     return face
   }
 

@@ -163,10 +163,13 @@ export class MusicBox {
     const sceneGain =
       this.scene === 'home' ? 1 : this.scene === 'lobby' ? 0.85 : this.scene === 'results' ? 0.9 : 0.75
     this.bus.gain.setTargetAtTime(v * sceneGain, t, 1.2)
-    this.pulseBus?.gain.setTargetAtTime(this.scene === 'rail' ? 0.5 : 0, t, 2)
-    if (this.pluckBus) {
-      this.pluckBus.gain.setTargetAtTime(this.scene === 'game' ? 0.62 : 0.8, t, 1.5)
-    }
+    // Scene shapes the active track; it never overrides the track's own mix.
+    const tr = this.cur
+    this.pulseBus?.gain.setTargetAtTime(this.scene === 'rail' ? Math.max(tr.pulse, 0.5) : tr.pulse, t, 2)
+    this.pluckBus?.gain.setTargetAtTime(Math.min(1, tr.pluck * (this.scene === 'game' || this.scene === 'rail' ? 0.9 : 1.15)), t, 1.5)
+    this.droneBus?.gain.setTargetAtTime(tr.drone, t, 1.5)
+    this.bellBus?.gain.setTargetAtTime(tr.bell, t, 1.5)
+    this.humBus?.gain.setTargetAtTime(tr.hum, t, 1.5)
   }
 
   dispose(): void {
