@@ -1,5 +1,5 @@
 import type { ActionType, GameState, BuildOption } from './state'
-import { CITY_BY_ID, currentPlayer, legalActions, playerById } from './state'
+import { CITY_BY_ID, COAL_MARKET_MAX, IRON_MARKET_MAX, coalPrice, ironPrice, currentPlayer, legalActions, playerById } from './state'
 import type { Card } from './state'
 
 // Victorian DOM HUD: engraved plates, parchment cards, ledger log.
@@ -146,7 +146,11 @@ export class Hud {
           </div>
         </div>`
       })
-      .join('')
+      .join('') +
+      `<div class="mkt" title="Shared market: building a mine or works sells into it; buying draws from it">
+        <span class="mk"><span class="g-lump"></span><b>${s.coalMarket}</b>/${COAL_MARKET_MAX}<small>Coal · £${coalPrice(s.coalMarket)}</small></span>
+        <span class="mk"><span class="g-ingot"></span><b>${s.ironMarket}</b>/${IRON_MARKET_MAX}<small>Iron · £${ironPrice(s.ironMarket)}</small></span>
+      </div>`
   }
 
   private prevRes = new Map<string, { m: number; v: number; i: number }>()
