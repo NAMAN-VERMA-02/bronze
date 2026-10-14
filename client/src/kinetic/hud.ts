@@ -118,7 +118,7 @@ export class Hud {
   private renderPlayers(s: GameState): void {
     const cur = currentPlayer(s)
     const plate = this.el.playersPlate
-    plate.innerHTML = s.order
+    plate.innerHTML = `<div class="phdr"><span></span><span>VP</span><span>£</span><span>INC</span><span><i class="g-lump"></i></span><span><i class="g-ingot"></i></span><span><i class="g-barrel"></i></span></div>` + s.order
       .map((pid) => {
         const p = playerById(s, pid)
         const isTurn = pid === cur.id
@@ -129,21 +129,16 @@ export class Hud {
         const iDir = !prev ? '' : p.income > prev.i ? ' up' : p.income < prev.i ? ' down' : ''
         this.prevRes.set(pid, { m: p.money, v: p.vp, i: p.income })
         const needle = Math.max(-70, Math.min(140, p.income * 16 - 24))
-        const stat = (cls: string, title: string, glyph: string, val: string, label: string) =>
-          `<span class="rglyph stat ${cls}" title="${title}"><span class="${glyph}"></span><b>${val}</b><small>${label}</small></span>`
+        const cell = (cls: string, title: string, val: string) =>
+          `<span class="rglyph cell ${cls}" title="${title}">${val}</span>`
         return `<div class="pplate ${isTurn ? 'turn' : 'wait'}" style="--pc:${p.css}">
-          <div class="phead">
-            <span class="pdot"></span>
-            <span class="pname">${escapeHtml(p.name)} ${tag}</span>
-            <span class="medal${vDir}" title="Victory Points">${p.vp}<small>VP</small></span>
-          </div>
-          <div class="statgrid">
-            ${stat('pmoney' + mDir, 'money', 'g-coin', `£${p.money}`, 'Money')}
-            ${stat('inc' + iDir, 'income per round', 'g-gauge" style="--needle:' + needle + 'deg', `+${p.income}`, 'Income')}
-            ${stat('res-coal', 'coal', 'g-lump', `${p.coal}`, 'Coal')}
-            ${stat('res-iron', 'iron', 'g-ingot', `${p.iron}`, 'Iron')}
-            ${stat('res-beer', 'beer', 'g-barrel', `${p.beer}`, 'Beer')}
-          </div>
+          <span class="pn"><span class="pdot"></span><span class="pname">${escapeHtml(p.name)}</span>${tag}</span>
+          ${cell('vp' + vDir, 'Victory Points', `${p.vp}`)}
+          ${cell('pmoney' + mDir, 'money', `£${p.money}`)}
+          ${cell('inc' + iDir, 'income per round', `+${p.income}`)}
+          ${cell('res-coal', 'coal on your mines', `${p.coal}`)}
+          ${cell('res-iron', 'iron on your works', `${p.iron}`)}
+          ${cell('res-beer', 'beer', `${p.beer}`)}
         </div>`
       })
       .join('') +
