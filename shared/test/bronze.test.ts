@@ -6,6 +6,8 @@ import {
   allBuildOptions,
   resolveBuild,
   resolveScout,
+  serializeGameState,
+  hydrateGameState,
   ironPlan,
   coalPlan,
   resourceOnBoard,
@@ -151,6 +153,21 @@ function tile(over: Partial<PlacedIndustry>): PlacedIndustry {
   s.wildLocPool = 0
   p.hand = p.hand.filter((c) => !c.kind.startsWith('wild'))
   check('scouting is not offered when a wild pool is empty', !legalActions(s, pid).SCOUT)
+}
+
+// ------------------------------ Save / resume ------------------------------
+{
+  const s = createInitialGameState(seats(2), 33)
+  s.coalMarket = 6
+  const copy = hydrateGameState(JSON.parse(JSON.stringify(serializeGameState(s))))
+  check('a saved game round-trips with its market and hands', copy.coalMarket === 6 && copy.players[0].hand.length === s.players[0].hand.length && copy.round === s.round)
+  const old = JSON.parse(JSON.stringify(serializeGameState(s))) as Record<string, unknown>
+  delete old.coalMarket
+  delete old.ironMarket
+  const legacy = hydrateGameState(old as never)
+  check('a save from before the market still loads with a full market', legacy.coalMarket === 14 && legacy.ironMarket === 8)
+  aiAct(copy, currentPlayer(copy).id)
+  check('a restored game can keep playing', invariants(copy) === null)
 }
 
 const s0 = createInitialGameState(seats(2), 42)
