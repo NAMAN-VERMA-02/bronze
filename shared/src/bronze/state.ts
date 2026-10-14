@@ -694,8 +694,10 @@ export function canBuildWithCard(s: GameState, playerId: string, card: Card): Bu
       }
     }
   } else if (card.kind === 'wild-industry') {
+    // Wild Industry: any industry type in a location connected to your network.
+    const kinds = card.industry ? [card.industry] : (Object.keys(INDUSTRY_SPEC) as IndustryType[])
     for (const cid of net) {
-      tryCity(cid, card.industry ?? 'coal')
+      for (const kind of kinds) tryCity(cid, kind)
     }
   } else {
     // Location card.
@@ -861,7 +863,7 @@ export function legalActions(s: GameState, playerId: string): Record<ActionType,
       p.developLeft > 0 && getLegalDevelopments(s, playerId).length > 0 && p.hand.length > 0,
     SELL: sellableIndustries(s, playerId).length > 0,
     LOAN: p.income - 3 >= -10 && p.hand.length > 0,
-    SCOUT: !holdsWild && p.hand.length >= 3 && (s.wildLocPool > 0 || s.wildIndPool > 0),
+    SCOUT: !holdsWild && p.hand.length >= 3 && s.wildLocPool > 0 && s.wildIndPool > 0,
     PASS: p.hand.length > 0,
   }
 }
@@ -1167,7 +1169,7 @@ export function resolveScout(s: GameState, playerId: string): string | null {
   s.wildLocPool--
   s.wildIndPool--
   p.hand.push({ id: `card${cardSeq++}`, cityId: null, kind: 'wild-location' })
-  p.hand.push({ id: `card${cardSeq++}`, cityId: null, kind: 'wild-industry', industry: 'coal' })
+  p.hand.push({ id: `card${cardSeq++}`, cityId: null, kind: 'wild-industry' })
   addLog(s, `${p.name} scouted for wild opportunities.`, 'brass')
   return null
 }
