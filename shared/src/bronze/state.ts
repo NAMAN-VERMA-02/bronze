@@ -4,6 +4,9 @@
 // industry supply mats with lowest-tile builds, Network/Develop/Sell/Loan/
 // Scout, era scoring & cleanup). The UI queries; it never decides.
 
+import { coalPrice, ironPrice, COAL_MARKET_START, IRON_MARKET_START } from '../data/tiles'
+export { coalPrice, ironPrice }
+
 export type IndustryType = 'coal' | 'iron' | 'cotton' | 'manufacturer' | 'pottery' | 'brewery'
 export type Era = 'canal' | 'rail'
 export type CityKind = 'city' | 'merchant' | 'farm-brewery'
@@ -260,6 +263,9 @@ export interface GameState {
   pendingDoubleLink: string | null
   /** One-time merchant bonuses, keyed by merchant id. */
   merchantBonusUsed: Record<string, string>
+  /** Units of coal / iron sitting in the shared market. */
+  coalMarket: number
+  ironMarket: number
 }
 
 let cardSeq = 0
@@ -352,6 +358,8 @@ export function createState(seats?: SeatSpec[], seed?: number): GameState {
     doubleRailArmed: false,
     pendingDoubleLink: null,
     merchantBonusUsed: {},
+    coalMarket: COAL_MARKET_START,
+    ironMarket: IRON_MARKET_START,
   }
   state.deck = buildDeck(players.length, rand)
   for (const p of players) refillHand(state, p)
@@ -474,6 +482,149 @@ function networkCitiesOf(s: GameState, playerId: string): Set<string> {
   return seen
 }
 
+
+// --------------------------- Coal / iron market ----------------------------
+// Mines and works hold their resources on the tile. Building one sells what
+// fits into the shared market for money. Buying draws from connected tiles
+// first (coal) or any tile (iron), then from the market at its current price;
+// an empty market still sells at the top price. Coal from the market needs a
+// connection to a merchant.
+
+export const COAL_MARKET_MAX = 14
+export const IRON_MARKET_MAX = 10
+
+type ResKind = 'coal' | 'iron'
+
+function spanFrom(s: GameState, cities: string[]): Map<string, number> {
+  const dist = new Map<string, number>()
+  for (const c of cities) dist.set(c, 0)
+  const queue = [...cities]
+  while (queue.length) {
+    const cur = queue.shift()!
+    for (const l of LINKS) {
+      if (!s.linksOwned[l.id]) continue
+      const next = l.a === cur ? l.b : l.b === cur ? l.a : null
+      if (next && !dist.has(next)) {
+        dist.set(next, dist.get(cur)! + 1)
+        queue.push(next)
+      }
+    }
+  }
+  return dist
+}
+
+function resourceTiles(s: GameState, kind: ResKind, within?: Map<string, number>): PlacedIndustry[] {
+  return s.placed.filter(
+    (t) => t.kind === kind && !t.flipped && t.resources > 0 && (!within || within.has(t.cityId)),
+  )
+}
+
+export function resourceOnBoard(s: GameState, kind: ResKind): number {
+  return resourceTiles(s, kind).reduce((n, t) => n + t.resources, 0)
+}
+
+function marketBuyCost(units: number, market: number, price: (n: number) => number): number {
+  let m = market
+  let total = 0
+  for (let i = 0; i < units; i++) {
+    total += price(m)
+    if (m > 0) m--
+  }
+  return total
+}
+
+export interface ResourcePlan {
+  tiles: number
+  market: number
+  money: number
+}
+
+/** Cost of getting `n` coal for something happening at `cities`, or null if impossible. */
+export function coalPlan(s: GameState, cities: string[], n: number): ResourcePlan | null {
+  if (n <= 0) return { tiles: 0, market: 0, money: 0 }
+  const reach = spanFrom(s, cities)
+  const onTiles = resourceTiles(s, 'coal', reach).reduce((a, t) => a + t.resources, 0)
+  const tiles = Math.min(n, onTiles)
+  const market = n - tiles
+  if (market > 0 && ![...reach.keys()].some((id) => CITY_BY_ID.get(id)?.merchant)) return null
+  return { tiles, market, money: marketBuyCost(market, s.coalMarket, coalPrice) }
+}
+
+/** Cost of getting `n` iron (any tile on the board, then the market). */
+export function ironPlan(s: GameState, n: number): ResourcePlan {
+  if (n <= 0) return { tiles: 0, market: 0, money: 0 }
+  const tiles = Math.min(n, resourceOnBoard(s, 'iron'))
+  const market = n - tiles
+  return { tiles, market, money: marketBuyCost(market, s.ironMarket, ironPrice) }
+}
+
+function flipIfEmpty(t: PlacedIndustry): void {
+  if (t.resources <= 0) t.flipped = true
+}
+
+/** Removes the resources a plan promised. Money is the caller's to charge. */
+function consumeResource(
+  s: GameState,
+  kind: ResKind,
+  playerId: string,
+  cities: string[],
+  plan: ResourcePlan,
+): void {
+  let need = plan.tiles
+  const dist = kind === 'coal' ? spanFrom(s, cities) : undefined
+  const sources = resourceTiles(s, kind, dist).sort((a, b) => {
+    const da = dist ? dist.get(a.cityId)! : a.ownerId === playerId ? 0 : 1
+    const db = dist ? dist.get(b.cityId)! : b.ownerId === playerId ? 0 : 1
+    return da - db
+  })
+  for (const t of sources) {
+    if (need <= 0) break
+    const take = Math.min(need, t.resources)
+    t.resources -= take
+    need -= take
+    flipIfEmpty(t)
+  }
+  if (kind === 'coal') s.coalMarket = Math.max(0, s.coalMarket - plan.market)
+  else s.ironMarket = Math.max(0, s.ironMarket - plan.market)
+}
+
+/** A fresh mine/works moves what fits into the market and is paid for it. */
+function sellToMarket(s: GameState, p: PlayerState, t: PlacedIndustry): void {
+  if (t.kind !== 'coal' && t.kind !== 'iron') return
+  const isCoal = t.kind === 'coal'
+  let sold = 0
+  let earned = 0
+  while (t.resources > 0 && (isCoal ? s.coalMarket < COAL_MARKET_MAX : s.ironMarket < IRON_MARKET_MAX)) {
+    if (isCoal) s.coalMarket++
+    else s.ironMarket++
+    earned += isCoal ? coalPrice(s.coalMarket) : ironPrice(s.ironMarket)
+    t.resources--
+    sold++
+  }
+  if (sold > 0) {
+    p.money += earned
+    addLog(s, `${p.name} sold ${sold} ${t.kind} to the market (+£${earned}).`)
+  }
+  flipIfEmpty(t)
+}
+
+/** Coal and iron on a player's own tiles (for the HUD). */
+export function syncResources(s: GameState): void {
+  for (const p of s.players) {
+    const own = (kind: ResKind) =>
+      s.placed
+        .filter((t) => t.ownerId === p.id && t.kind === kind && !t.flipped)
+        .reduce((n, t) => n + t.resources, 0)
+    p.coal = own('coal')
+    p.iron = own('iron')
+  }
+}
+
+/** Money needed beyond the printed price to supply `n` iron. */
+export function ironCost(s: GameState, n: number): number {
+  return ironPlan(s, n).money
+}
+
 export interface BuildOption {
   cardId: string
   cityId: string
@@ -505,9 +656,13 @@ export function canBuildWithCard(s: GameState, playerId: string, card: Card): Bu
     if (slotIdx === null) {
       // Official overbuild: replace your OWN same-industry tile with a
       // higher level, paying the new tile's full cost.
-      const own = s.placed.find(
+      let own = s.placed.find(
         (t) => t.cityId === cityId && t.ownerId === playerId && t.kind === kind,
       )
+      // Rivals' coal mines / iron works may be overbuilt once none is left on the board.
+      if (!own && (kind === 'coal' || kind === 'iron') && resourceOnBoard(s, kind) === 0) {
+        own = s.placed.find((t) => t.cityId === cityId && t.ownerId !== playerId && t.kind === kind)
+      }
       const lvl = lowestAvailableLevel(p, kind)
       if (!own || !lvl || own.level >= lvl) return
       slotIdx = own.slot
@@ -518,13 +673,14 @@ export function canBuildWithCard(s: GameState, playerId: string, card: Card): Bu
     const spec = INDUSTRY_SPEC[kind][level - 1]
     if (spec.railOnly && s.era !== 'rail') return
     if (spec.networkRequired && !net.has(cityId!)) return
-    if (p.money < spec.cost.money || p.iron < spec.cost.iron || p.beer < spec.cost.beer) return
+    const ironExtra = ironCost(s, spec.cost.iron)
+    if (p.money < spec.cost.money + ironExtra || p.beer < spec.cost.beer) return
     out.push({
       cardId: card.id,
       cityId: cityId!,
       kind,
       level,
-      cost: spec.cost,
+      cost: { ...spec.cost, money: spec.cost.money + ironExtra },
       spec,
       inNetwork: net.has(cityId!),
       overbuildKey,
@@ -579,7 +735,10 @@ export function legalNetworkLinks(s: GameState, playerId: string): LinkDef[] {
   return LINKS.filter((l) => {
     if (l.era !== s.era || s.linksOwned[l.id]) return false
     if (p.money < linkCost(s, l)) return false
-    if (l.era === 'rail' && p.coal < 1) return false
+    if (l.era === 'rail') {
+      const cp = coalPlan(s, [l.a, l.b], 1)
+      if (!cp || p.money < linkCost(s, l) + cp.money) return false
+    }
     if (!hasAnythingOnBoard) return true
     return net.has(l.a) || net.has(l.b)
   })
@@ -598,7 +757,6 @@ export function canDoubleRail(s: GameState, playerId: string): boolean {
   const p = playerById(s, playerId)
   return (
     p.money >= 15 &&
-    p.coal >= 2 &&
     p.beer >= 1 &&
     legalNetworkLinks(s, playerId).length >= 2 &&
     hasBreweryOnNetwork(s, playerId)
@@ -713,7 +871,6 @@ export function legalActions(s: GameState, playerId: string): Record<ActionType,
 function payFrom(p: PlayerState, c: Cost): void {
   p.money -= c.money
   p.spent += c.money
-  p.iron -= c.iron
   p.beer -= c.beer
 }
 
@@ -746,13 +903,12 @@ export function resolveBuild(
   const dErr = discardForAction(s, p, cardId)
   if (dErr) return dErr
   p.supply[kind][level === 1 ? 'l1' : 'l2']--
+  consumeResource(s, 'iron', playerId, [], ironPlan(s, option.cost.iron))
   payFrom(p, option.cost)
   p.income += option.spec.income
-  if (option.spec.grant?.coal) p.coal += option.spec.grant.coal
-  if (option.spec.grant?.iron) p.iron += option.spec.grant.iron
   if (option.spec.grant?.beer) p.beer += option.spec.grant.beer
   const slot = slotIdx
-  s.placed.push({
+  const placedTile: PlacedIndustry = {
     key: `${cityId}:${slot}`,
     cityId,
     slot,
@@ -763,7 +919,10 @@ export function resolveBuild(
     scored: false,
     resources:
       kind === 'coal' ? level + 1 : kind === 'iron' ? level + 1 : kind === 'brewery' ? level : 0,
-  })
+  }
+  s.placed.push(placedTile)
+  sellToMarket(s, p, placedTile)
+  syncResources(s)
   addLog(
     s,
     `${p.name} built ${labelOf(kind)} L${level} in ${CITY_BY_ID.get(cityId)!.name}.`,
@@ -808,17 +967,19 @@ export function resolveNetwork(
   if (l.era !== s.era) return 'Wrong era for that route.'
   const p = playerById(s, playerId)
   const cost = linkCost(s, l)
-  if (p.money < cost) return 'Not enough money.'
-  if (l.era === 'rail' && p.coal < 1) return 'Rail links consume 1 coal.'
+  const coal = l.era === 'rail' ? coalPlan(s, [l.a, l.b], 1) : { tiles: 0, market: 0, money: 0 }
+  if (!coal) return 'Rail links need coal: connect to a coal mine or a merchant.'
+  if (p.money < cost + coal.money) return 'Not enough money.'
   if (!legalNetworkLinks(s, playerId).some((x) => x.id === linkId)) return 'That line is not connected to your network.'
   const dErr = discardForAction(s, p, consumeCardId)
   if (dErr) return dErr
-  p.money -= cost
-  p.spent += cost
-  if (l.era === 'rail') p.coal -= 1
+  p.money -= cost + coal.money
+  p.spent += cost + coal.money
+  if (l.era === 'rail') consumeResource(s, 'coal', playerId, [l.a, l.b], coal)
   s.linksOwned[linkId] = playerId
   p.linksBuilt++
   addLog(s, `${p.name} connected ${CITY_BY_ID.get(l.a)!.name} → ${CITY_BY_ID.get(l.b)!.name}.`, 'brass')
+  syncResources(s)
   return null
 }
 
@@ -841,13 +1002,19 @@ export function applyNetworkDouble(
   if (s.era !== 'rail') return 'Double-rail is a Railway action.'
   const p = playerById(s, playerId)
   if (p.money < 15) return '£15 required.'
-  if (p.coal < 2) return 'Two rails consume 2 coal.'
   if (!hasBreweryOnNetwork(s, playerId)) return 'The double-rail needs brewery beer on your network.'
+  const la = LINK_BY_ID.get(linkA)
+  const lb = LINK_BY_ID.get(linkB)
+  if (!la || !lb) return 'Unknown route.'
+  const ends = [la.a, la.b, lb.a, lb.b]
+  const coal = coalPlan(s, ends, 2)
+  if (!coal) return 'Two rails consume 2 coal: connect to a coal mine or a merchant.'
+  if (p.money < 15 + coal.money) return `£${15 + coal.money} required.`
   const dErr = discardForAction(s, p)
   if (dErr) return dErr
-  p.money -= 15
-  p.spent += 15
-  p.coal -= 2
+  p.money -= 15 + coal.money
+  p.spent += 15 + coal.money
+  consumeResource(s, 'coal', playerId, ends, coal)
   p.beer -= 1
   for (const id of [linkA, linkB]) {
     const l = LINK_BY_ID.get(id)
@@ -856,6 +1023,7 @@ export function applyNetworkDouble(
     p.linksBuilt++
     addLog(s, `${p.name} connected ${CITY_BY_ID.get(l.a)!.name} → ${CITY_BY_ID.get(l.b)!.name}.`, 'brass')
   }
+  syncResources(s)
   return null
 }
 
@@ -868,7 +1036,8 @@ export function resolveDevelop(
   if (kinds.length < 1 || kinds.length > 2) return 'Develop removes one or two industries.'
   if (p.developLeft <= 0) return 'No developments remain this era.'
   const ironNeeded = kinds.length
-  if (p.iron < ironNeeded) return `Develop consumes ${ironNeeded} iron.`
+  const ironP = ironPlan(s, ironNeeded)
+  if (p.money < ironP.money) return `Develop needs £${ironP.money} for iron.`
   const legal = getLegalDevelopments(s, playerId)
   for (const k of kinds) {
     if (!legal.some((d) => d.kind === k)) return `${labelOf(k)} cannot be developed now.`
@@ -880,7 +1049,10 @@ export function resolveDevelop(
     p.supply[k][lvl === 1 ? 'l1' : 'l2']--
     p.developLeft--
   }
-  p.iron -= ironNeeded
+  consumeResource(s, 'iron', playerId, [], ironP)
+  p.money -= ironP.money
+  p.spent += ironP.money
+  syncResources(s)
   addLog(s, `${p.name} developed ${kinds.length === 2 ? 'two industries' : 'an industry'} (${kinds.join(', ')}).`)
   return null
 }

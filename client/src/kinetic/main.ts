@@ -31,6 +31,8 @@ import {
   advanceTurn,
   addLog,
   freeSlot,
+  coalPlan,
+  ironCost,
 } from './state'
 import { SoundScape } from './audio'
 import { MusicBox, pickTrack } from './music'
@@ -2281,7 +2283,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       const links = legalNetworkLinks(state, pid)
       const cards: CtItem[] = links.map((l) => {
         const id = `ct${traySeq++}`
-        const coalNeed = l.era === 'rail' ? 1 : 0
+        const cp = l.era === 'rail' ? coalPlan(state, [l.a, l.b], 1) : { tiles: 0, market: 0, money: 0 }
         const isSecondPick = doubleRailStage === 2
         trayHandlers.set(id, () => {
           if (doubleRailStage === 1) {
@@ -2308,8 +2310,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
             top: CITY_BY_ID.get(l.a)!.name,
             arrow: '↓',
             mid: CITY_BY_ID.get(l.b)!.name,
-            cost: l.era === 'canal' ? '£3' : `£5 · COAL ×1`,
-            costShort: coalNeed > p.coal,
+            cost: l.era === 'canal' ? '£3' : cp ? `£${5 + cp.money} · COAL ×1${cp.market ? ' (market)' : ''}` : '£5 · NO COAL',
+            costShort: !cp || p.money < (l.era === 'canal' ? 3 : 5) + cp.money,
             era: l.era === 'canal' ? 'CANAL' : 'RAILWAY',
           }),
           confirm: true,
@@ -2361,12 +2363,12 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       const devs = getLegalDevelopments(state, pid).slice(0, 6)
       const cards: CtItem[] = devs.map((d) => {
         const id = `ct${traySeq++}`
-        const short = p.iron < d.iron
+        const short = p.money < ironCost(state, d.iron)
         if (short) trayDisabled.add(id)
         trayHandlers.set(id, () => {
           // Single tap: arm/disarm this kind (max two, iron-aware).
           if (short && !devSelected.includes(d.kind)) {
-            return nudgeResource('iron', d.iron, p.iron)
+            return nudgeResource('money', ironCost(state, d.iron), p.money)
           }
           if (devSelected.includes(d.kind)) {
             devSelected = devSelected.filter((k) => k !== d.kind)
@@ -2390,7 +2392,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
           onLeave: () => (devHoverKind = null),
           // Double-tap: use this tile immediately (legal single develop).
           onDbl: () => {
-            if (p.iron < d.iron) return nudgeResource('iron', d.iron, p.iron)
+            if (p.money < ironCost(state, d.iron)) return nudgeResource('money', ironCost(state, d.iron), p.money)
             const err = resolveDevelop(state, pid, [d.kind])
             if (err) return nudgeFromMessage(err)
             endAction()
@@ -2771,11 +2773,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
         if (!lvl) continue
         const spec = INDUSTRY_SPEC_LOCAL[kind][lvl - 1]
         if (spec.railOnly && state.era !== 'rail') continue
-        if (p.money < spec.cost.money) {
-          nudgeResource('money', spec.cost.money, p.money)
-          explained = true
-        } else if (p.iron < spec.cost.iron) {
-          nudgeResource('iron', spec.cost.iron, p.iron)
+        if (p.money < spec.cost.money + ironCost(state, spec.cost.iron)) {
+          nudgeResource('money', spec.cost.money + ironCost(state, spec.cost.iron), p.money)
           explained = true
         } else if (p.beer < spec.cost.beer) {
           nudgeResource('beer', spec.cost.beer, p.beer)
