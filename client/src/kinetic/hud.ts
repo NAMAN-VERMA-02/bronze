@@ -129,19 +129,20 @@ export class Hud {
         const iDir = !prev ? '' : p.income > prev.i ? ' up' : p.income < prev.i ? ' down' : ''
         this.prevRes.set(pid, { m: p.money, v: p.vp, i: p.income })
         const needle = Math.max(-70, Math.min(140, p.income * 16 - 24))
+        const stat = (cls: string, title: string, glyph: string, val: string, label: string) =>
+          `<span class="rglyph stat ${cls}" title="${title}"><span class="${glyph}"></span><b>${val}</b><small>${label}</small></span>`
         return `<div class="pplate ${isTurn ? 'turn' : 'wait'}" style="--pc:${p.css}">
-          <div class="prow1">
-            <span class="medal${vDir}" title="Victory Points">${p.vp}</span>
-            <div class="pname-col">
-              <span class="pname">${escapeHtml(p.name)} ${tag}</span>
-              <div class="resline">
-                <span class="rglyph pmoney${mDir}" title="money"><span class="g-coin"></span>£${p.money}</span>
-                <span class="rglyph inc${iDir}" title="income"><span class="g-gauge" style="--needle:${needle}deg"></span><span class="lbl">+${p.income}</span></span>
-                <span class="rglyph res-coal" title="coal"><span class="g-lump"></span>${p.coal}</span>
-                <span class="rglyph res-iron" title="iron"><span class="g-ingot"></span>${p.iron}</span>
-                <span class="rglyph res-beer" title="beer"><span class="g-barrel"></span>${p.beer}</span>
-              </div>
-            </div>
+          <div class="phead">
+            <span class="pdot"></span>
+            <span class="pname">${escapeHtml(p.name)} ${tag}</span>
+            <span class="medal${vDir}" title="Victory Points">${p.vp}<small>VP</small></span>
+          </div>
+          <div class="statgrid">
+            ${stat('pmoney' + mDir, 'money', 'g-coin', `£${p.money}`, 'Money')}
+            ${stat('inc' + iDir, 'income per round', 'g-gauge" style="--needle:' + needle + 'deg', `+${p.income}`, 'Income')}
+            ${stat('res-coal', 'coal', 'g-lump', `${p.coal}`, 'Coal')}
+            ${stat('res-iron', 'iron', 'g-ingot', `${p.iron}`, 'Iron')}
+            ${stat('res-beer', 'beer', 'g-barrel', `${p.beer}`, 'Beer')}
           </div>
         </div>`
       })
