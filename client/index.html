@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BRONZE — A Victorian Industrial Tabletop</title>
+  <style>
+    :root {
+      --bg: #080706; --wood: #19140f; --wood2: #241b13; --wood3: #2f2418;
+      --edge: #6a5636; --ink: #e6d8b8; --dim: #b7a47d;
+      --brass: #b88a38; --brass2: #d7b65f; --line: #4a3c26;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: radial-gradient(120% 90% at 50% 110%, #241708 0%, var(--wood) 42%, var(--bg) 100%);
+      color: var(--ink); font-family: Georgia, "Times New Roman", serif;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Workshop atmosphere — pure CSS, no WebGL on the home page. */
+    .skyline { position: fixed; inset: auto 0 34vh 0; height: 30vh; opacity: .8; pointer-events: none; }
+    .table-edge {
+      position: fixed; left: -10%; right: -10%; bottom: -14vh; height: 34vh;
+      background: linear-gradient(180deg, #3a2817 0%, #241709 55%, #120b05 100%);
+      border-radius: 50% 50% 0 0 / 90px 90px 0 0;
+      box-shadow: 0 -18px 60px rgba(0,0,0,.75), inset 0 3px 12px rgba(215,182,95,.08);
+      pointer-events: none;
+    }
+    .torch { position: fixed; width: 46vmin; height: 46vmin; border-radius: 50%; pointer-events: none;
+      background: radial-gradient(circle, rgba(255,166,64,.20) 0%, rgba(255,140,40,.08) 38%, transparent 68%);
+      animation: torchflicker 3.4s ease-in-out infinite; mix-blend-mode: screen; }
+    .torch.l { left: -14vmin; bottom: 4vmin; }
+    .torch.r { right: -14vmin; bottom: 6vmin; animation-delay: 1.7s; }
+    @keyframes torchflicker {
+      0%,100% { opacity:.85; transform: scale(1); } 18% { opacity:.65; transform: scale(.97) translateY(2px); }
+      37% { opacity:.95; transform: scale(1.03); } 56% { opacity:.72; transform: scale(.99); }
+      74% { opacity:.92; transform: scale(1.02) translateY(-1px); } 88% { opacity:.7; transform: scale(.98); }
+    }
+    .smoke { position: fixed; width: 26vmin; height: 26vmin; border-radius: 50%;
+      background: radial-gradient(circle, rgba(160,150,135,.07), transparent 65%);
+      filter: blur(6px); pointer-events: none; animation: drift 26s linear infinite; }
+    @keyframes drift { from { transform: translateY(6vh); } to { transform: translateY(-32vh); } }
+
+    .silhouette { position: fixed; bottom: 16vh; width: 15vmin; height: 22vmin; opacity: .5; pointer-events: none;
+      background: linear-gradient(180deg, transparent 12%, #0c0906 30%);
+      border-radius: 45% 45% 8px 8px; }
+    .silhouette::before { content:''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 7.4vmin; height: 7.4vmin; border-radius: 50%; background: #0c0906; }
+    .silhouette.l { left: 16vw; transform: rotate(-4deg); }
+    .silhouette.r { right: 16vw; transform: rotate(5deg); }
+
+    /* Panel */
+    .panel {
+      position: relative; z-index: 5; text-align: center;
+      background: linear-gradient(180deg, rgba(36,27,19,.94), rgba(25,20,15,.94));
+      border: 1px solid var(--edge); border-radius: 16px;
+      padding: 44px 58px 38px; min-width: 430px;
+      box-shadow: 0 40px 110px rgba(0,0,0,.85), inset 0 1px 0 rgba(230,216,184,.09);
+    }
+    h1 { font-weight: normal; letter-spacing: 14px; font-size: 38px; color: var(--brass2);
+      text-shadow: 0 0 34px rgba(184,138,56,.35), 0 2px 4px rgba(0,0,0,.9);
+      animation: titlein 1.6s ease both; }
+    @keyframes titlein { from { opacity: 0; letter-spacing: 22px; } to { opacity: 1; letter-spacing: 14px; } }
+    .tagline { margin-top: 10px; letter-spacing: 6px; font-size: 11.5px; color: var(--dim); }
+    .rule { margin: 24px auto 22px; width: 200px; border-bottom: 1px solid var(--edge); position: relative; }
+    .rule::after { content:'❖'; position: absolute; left: 50%; top: -11px; transform: translateX(-50%);
+      background: rgba(25,20,15,.94); padding: 0 10px; color: var(--brass); font-size: 12px; }
+    .menu { display: flex; flex-direction: column; gap: 11px; }
+    .menu a {
+      display: block; text-decoration: none;
+      background: linear-gradient(180deg, #3d2f1d, var(--wood3));
+      border: 1px solid var(--edge); color: var(--ink);
+      border-radius: 7px; padding: 14px 18px; cursor: pointer;
+      font-family: inherit; font-size: 13.5px; letter-spacing: 5px;
+      transition: transform .12s, border-color .15s, color .15s;
+    }
+    .menu a:hover { border-color: var(--brass); transform: translateY(-1px); color: var(--brass2); }
+    .menu a:active { transform: translateY(1px); }
+
+    /* Parchment survey resting on the table */
+    .parchment {
+      position: fixed; left: 50%; bottom: -20vh; width: 74vmin; height: 40vmin;
+      transform: translateX(-50%) rotate(-2.2deg);
+      background:
+        radial-gradient(ellipse at 30% 30%, rgba(120,90,50,.18), transparent 60%),
+        radial-gradient(ellipse at 70% 65%, rgba(120,90,50,.14), transparent 55%),
+        linear-gradient(160deg, #4a3a22 0%, #3a2c19 60%, #2c2012 100%);
+      border-radius: 6px;
+      box-shadow: 0 -8px 40px rgba(0,0,0,.7), inset 0 0 60px rgba(0,0,0,.55);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .parchment::before {
+      content: ''; position: absolute; inset: 12px;
+      border: 1px solid rgba(184,138,56,.35); border-radius: 3px;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 26px, rgba(184,138,56,.08) 26px 27px),
+        repeating-linear-gradient(90deg, transparent 0 34px, rgba(184,138,56,.06) 34px 35px);
+    }
+    .parchment::after {
+      content: 'THE MIDLANDS'; position: absolute; left: 50%; bottom: 14%;
+      transform: translateX(-50%); letter-spacing: 6px;
+      font-size: 13px; color: rgba(215,182,95,.5);
+    }
+    .foot { margin-top: 24px; font-size: 10.5px; letter-spacing: 3px; color: var(--dim); }
+    .ember { display:inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--brass2); box-shadow: 0 0 10px var(--brass2); margin: 0 8px 1px;
+      animation: emberpulse 2.8s ease-in-out infinite; }
+    @keyframes emberpulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+    @media (max-width: 700px) { .panel { min-width: 84vw; padding: 32px 24px; } h1 { font-size: 27px; letter-spacing: 9px; } }
+
+    /* Living atmosphere: drifting embers + room settle */
+    .mote { position: fixed; width: 3px; height: 3px; border-radius: 50%; z-index: 1; pointer-events: none;
+      background: rgba(230,180,90,.7); box-shadow: 0 0 6px rgba(230,180,90,.5);
+      animation: moteRise linear infinite; }
+    @keyframes moteRise {
+      from { transform: translateY(0); opacity: 0; }
+      12% { opacity: .8; }
+      to { transform: translateY(-46vh); opacity: 0; }
+    }
+    .panel, h1, .tagline { animation: settleIn 1s ease both; }
+    .menu a { animation: settleIn 1s ease both; }
+    .menu a:nth-child(1) { animation-delay: .15s; }
+    .menu a:nth-child(2) { animation-delay: .25s; }
+    .menu a:nth-child(3) { animation-delay: .35s; }
+    @keyframes settleIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <!-- Distant industrial skyline -->
+  <svg class="skyline" viewBox="0 0 1440 260" preserveAspectRatio="none">
+    <g fill="#0e0a06">
+      <rect x="40" y="120" width="90" height="140"/><rect x="150" y="90" width="60" height="170"/>
+      <rect x="230" y="140" width="120" height="120"/><rect x="380" y="70" width="44" height="190"/>
+      <rect x="450" y="130" width="100" height="130"/><rect x="600" y="100" width="70" height="160"/>
+      <rect x="700" y="60" width="36" height="200"/><rect x="770" y="120" width="130" height="140"/>
+      <rect x="940" y="85" width="56" height="175"/><rect x="1030" y="135" width="110" height="125"/>
+      <rect x="1180" y="105" width="64" height="155"/><rect x="1290" y="145" width="120" height="115"/>
+      <!-- chimneys -->
+      <rect x="62" y="60" width="14" height="70"/><rect x="395" y="20" width="13" height="60"/>
+      <rect x="712" y="14" width="12" height="52"/><rect x="955" y="40" width="13" height="52"/>
+      <rect x="1198" y="58" width="12" height="54"/>
+    </g>
+    <g fill="#1a1108">
+      <circle cx="69" cy="52" r="9" opacity=".55"/><circle cx="401" cy="14" r="10" opacity=".5"/>
+      <circle cx="718" cy="8" r="11" opacity=".45"/><circle cx="961" cy="34" r="9" opacity=".5"/>
+    </g>
+  </svg>
+
+  <div class="torch l"></div><div class="torch r"></div>
+  <div class="smoke" style="left:8vw;bottom:30vh"></div>
+  <div class="smoke" style="right:12vw;bottom:26vh;animation-delay:-9s"></div>
+  <div class="smoke" style="left:48vw;bottom:34vh;animation-delay:-17s"></div>
+  <div class="silhouette l"></div><div class="silhouette r"></div>
+  <div class="parchment" data-depth="6"></div>
+  <div class="table-edge"></div>
+
+  <div class="panel">
+    <h1>BRONZE</h1>
+    <div class="tagline">BUILD • CONNECT • INDUSTRIALIZE</div>
+    <div class="rule"></div>
+    <nav class="menu">
+      <a href="/kinetic.html#create">CREATE TABLE</a>
+      <a href="/kinetic.html#join">JOIN TABLE</a>
+      <a href="/kinetic.html#ai">PLAY WITH AI</a>
+    </nav>
+    <div class="foot"><span class="ember"></span>A VICTORIAN INDUSTRIAL STRATEGY TABLE<span class="ember"></span></div>
+  </div>
+
+  <script>
+    // Very subtle depth: background layers lean away from the cursor.
+    (function () {
+      var layers = document.querySelectorAll('.skyline, .silhouette, .smoke, .parchment')
+      window.addEventListener('mousemove', function (e) {
+        var nx = e.clientX / window.innerWidth - 0.5
+        var ny = e.clientY / window.innerHeight - 0.5
+        layers.forEach(function (el) {
+          var d = parseFloat(el.getAttribute('data-depth') || '3')
+          el.style.marginLeft = (-nx * d) + 'px'
+          el.style.marginTop = (-ny * d * 0.4) + 'px'
+        })
+      }, { passive: true })
+
+      // Warm motes drifting up near the lamps — slow, sparse, alive.
+      for (var i = 0; i < 14; i++) {
+        var m = document.createElement('div')
+        m.className = 'mote'
+        m.style.left = (6 + Math.random() * 88) + 'vw'
+        m.style.bottom = (8 + Math.random() * 26) + 'vh'
+        m.style.animationDuration = (9 + Math.random() * 10) + 's'
+        m.style.animationDelay = (-Math.random() * 14) + 's'
+        document.body.appendChild(m)
+      }
+    })()
+  </script>
+</body>
+</html>
