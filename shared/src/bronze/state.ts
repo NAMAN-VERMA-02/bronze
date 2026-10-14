@@ -1336,5 +1336,9 @@ export function serializeGameState(s: GameState): SerializedGame {
 export function hydrateGameState(raw: SerializedGame): GameState {
   const s = raw as unknown as GameState
   s.dealRandom = raw.seed >= 0 ? mulberry32(raw.seed) : Math.random
+  // Saves from before the shared market existed.
+  if (typeof s.coalMarket !== 'number') s.coalMarket = COAL_MARKET_START
+  if (typeof s.ironMarket !== 'number') s.ironMarket = IRON_MARKET_START
+  s.merchantBonusUsed ??= {}
   return s
 }
