@@ -1,0 +1,24 @@
+{
+  "name": "bronze",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c yellow,cyan \"npm:dev -w server\" \"npm:dev -w client\"",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
+    "smoke": "npm run smoke -w shared",
+    "server": "npm run dev -w server",
+    "client": "npm run dev -w client",
+    "test": "tsx shared/test/rules.test.ts && npm run smoke",
+    "build": "npm run build -w client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2"
+  }
+}
