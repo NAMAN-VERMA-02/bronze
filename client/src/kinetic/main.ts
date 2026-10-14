@@ -472,7 +472,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
 
   // --------------------------- Save / Resume ---------------------------------
 
-  function saveGame(): void {
+  function saveGame(quiet = false): void {
     if (phase !== 'game' && phase !== 'results') return
     try {
       localStorage.setItem(
@@ -483,11 +483,24 @@ function init(host: HTMLElement, loading: HTMLElement): void {
           savedAt: Date.now(),
         }),
       )
-      hud.toast('Table saved.')
+      if (!quiet) hud.toast('Table saved.')
     } catch {
-      hud.toast('Could not save (storage full?).')
+      if (!quiet) hud.toast('Could not save (storage full?).')
     }
-    closeMenuSafe()
+    if (!quiet) closeMenuSafe()
+  }
+
+  /** Saves after every state change so "Continue game" always picks up where you left off. */
+  function autoSave(): void {
+    if (state.over) {
+      try {
+        localStorage.removeItem('kinetic.save')
+      } catch {
+        /* storage unavailable */
+      }
+      return
+    }
+    saveGame(true)
   }
 
   function loadSavedGame(): boolean {
@@ -2549,6 +2562,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
   }
 
   function afterStateChange(): void {
+    if (phase === 'game') autoSave()
     ;(window as unknown as { __bronze: unknown }).__bronze = {
       era: state.era,
       round: state.round,
