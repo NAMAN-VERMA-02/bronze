@@ -37,7 +37,7 @@ const INDUSTRY_LABEL: Record<string, string> = {
 
 function cardTip(c: Card): string {
   if (c.kind === 'wild-location') return 'Wild Location: build any industry in any town you can reach.'
-  if (c.kind === 'wild-industry') return `Wild ${INDUSTRY_LABEL[c.industry ?? 'coal']}: build this industry in any town.`
+  if (c.kind === 'wild-industry') return c.industry ? `Wild ${INDUSTRY_LABEL[c.industry]}: build this industry in any town.` : 'Wild Industry: build any industry in a town connected to your network.'
   const city = c.cityId ? CITY_BY_ID.get(c.cityId) : undefined
   return city ? `${city.name}: build there, or build any industry connected to your network.` : ''
 }
@@ -255,7 +255,7 @@ export class Hud {
     face.style.setProperty('--tint', tintCss)
     const city = c.cityId ? CITY_BY_ID.get(c.cityId) : undefined
     const title =
-      c.kind === 'wild-location' ? 'Wild Location' : c.kind === 'wild-industry' ? INDUSTRY_LABEL[c.industry ?? 'coal'] : (city?.name ?? '')
+      c.kind === 'wild-location' ? 'Wild Location' : c.kind === 'wild-industry' ? (c.industry ? INDUSTRY_LABEL[c.industry] : 'Wild Industry') : (city?.name ?? '')
     const sub =
       c.kind === 'wild-location'
         ? 'ANY TOWN'
