@@ -185,7 +185,7 @@
 
     /* ------------------------------ Action bar ----------------------------- */
     #actionBar {
-      position: fixed; bottom: 108px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 152px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 8px; z-index: 12; pointer-events: auto;
     }
     #actionBar.locked { pointer-events: none; filter: saturate(.55) brightness(.85); }
@@ -202,7 +202,7 @@
     button.act:disabled { opacity: .42; cursor: default; }
 
     #infoPanel {
-      position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 194px; left: 50%; transform: translateX(-50%);
       z-index: 11; text-align: center; font-size: 12px; letter-spacing: .5px;
       color: var(--dim); pointer-events: none; line-height: 1.5;
       text-shadow: 0 1px 4px rgba(0,0,0,.8);
@@ -212,7 +212,7 @@
     /* Reserved contextual layer — own space, scrolls, never overlaps. */
     #contextTray {
       position: fixed; left: 50%; transform: translateX(-50%);
-      bottom: 162px; z-index: 12;
+      bottom: 206px; z-index: 12;
       width: min(92vw, 860px);
       max-height: min(30vh, 240px);
       overflow-y: auto;
@@ -255,27 +255,32 @@
       padding-bottom: 6px;
     }
     #hand::-webkit-scrollbar { width: 0; height: 0; display: none; }
-    .vcard { width: 68px; height: 96px; cursor: pointer; transition: transform .16s ease, filter .16s; }
-    .vcard:hover { transform: translateY(-9px); }
-    .vcard.sel { transform: translateY(-15px) scale(1.05); }
+    .vcard { width: 84px; height: 118px; cursor: pointer; flex: none; transition: transform .18s cubic-bezier(.2,.8,.3,1), filter .16s; }
+    .vcard:hover { transform: translateY(-12px) rotate(-1.2deg) scale(1.04); z-index: 5; }
+    .vcard.sel { transform: translateY(-20px) scale(1.08); z-index: 6; }
     .vcard-face {
-      width: 100%; height: 100%; position: relative; overflow: hidden;
-      background: linear-gradient(165deg, #e6d8b2, #d3c398 65%, #c1b185);
-      border: 1px solid #7a5c30; border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,.6);
-    }
-    .vcard.sel .vcard-face { outline: 2px solid var(--brass2); box-shadow: 0 8px 22px rgba(0,0,0,.75), 0 0 16px rgba(184,138,56,.4); }
-    .vc-emblem {
-      position: absolute; top: 8px; left: 8px; right: 8px; height: 52%;
-      border: 1.5px solid var(--tint, #7a5c30); border-radius: 4px; opacity: .9;
+      width: 100%; height: 100%; position: relative; overflow: hidden; color: var(--tint, #7a5c30);
       background:
-        radial-gradient(circle at 50% 42%, transparent 26%, var(--tint, #7a5c30) 27%, transparent 29%),
-        linear-gradient(0deg, transparent 30%, var(--tint, #7a5c30) 31%, transparent 33%),
-        linear-gradient(90deg, transparent 44%, var(--tint, #7a5c30) 45%, transparent 47%);
+        radial-gradient(120% 70% at 50% 0%, rgba(255,255,255,.35), transparent 60%),
+        linear-gradient(165deg, #ecdfba, #d6c79c 62%, #bfae82);
+      border: 1px solid #6f522a; border-radius: 8px;
+      box-shadow: 0 5px 14px rgba(0,0,0,.65), inset 0 0 0 3px rgba(111,82,42,.14), inset 0 0 0 4px rgba(255,255,255,.18);
     }
-    .vc-title { position: absolute; bottom: 27px; width: 100%; text-align: center; font-weight: bold; font-size: 11.5px; color: #241a0e; letter-spacing: .5px; }
-    .vc-sub { position: absolute; bottom: 16px; width: 100%; text-align: center; font-size: 7.5px; letter-spacing: 2px; color: #57432a; }
-    .vc-brand { position: absolute; bottom: 4px; width: 100%; text-align: center; font-size: 7.5px; letter-spacing: 3px; color: #6b4f2a; }
+    .vcard-face.kind-wild-location, .vcard-face.kind-wild-industry {
+      background:
+        radial-gradient(120% 70% at 50% 0%, rgba(255,240,180,.55), transparent 60%),
+        linear-gradient(165deg, #f0dd9e, #d9bf74 62%, #b99a4c);
+    }
+    .vcard.sel .vcard-face { outline: 2px solid var(--brass2); box-shadow: 0 10px 24px rgba(0,0,0,.75), 0 0 18px rgba(215,182,95,.55); }
+    .vc-kind { position: absolute; top: 5px; width: 100%; text-align: center; font-size: 7px; letter-spacing: 2.4px; color: #57432a; }
+    .vc-emblem { position: absolute; top: 17px; left: 9px; right: 9px; height: 44px; display: flex; align-items: center; justify-content: center;
+      border: 1.2px solid rgba(111,82,42,.55); border-radius: 5px; background: rgba(255,255,255,.18); }
+    .vc-emblem svg { width: 80%; height: 80%; filter: drop-shadow(0 1px 0 rgba(255,255,255,.4)); }
+    .vc-title { position: absolute; bottom: 33px; width: 100%; padding: 0 4px; box-sizing: border-box; text-align: center; font-weight: bold; font-size: 10px; line-height: 1.1; color: #241a0e; letter-spacing: 0; overflow-wrap: anywhere; }
+    .vc-sub { position: absolute; bottom: 22px; width: 100%; text-align: center; font-size: 7px; letter-spacing: 2px; color: #57432a; }
+    .vc-pips { position: absolute; bottom: 13px; width: 100%; display: flex; justify-content: center; gap: 4px; }
+    .vc-pips i { width: 6px; height: 6px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f0d78a, #8a6420); box-shadow: 0 1px 1px rgba(0,0,0,.5); }
+    .vc-brand { position: absolute; bottom: 3px; width: 100%; text-align: center; font-size: 6.5px; letter-spacing: 3px; color: #6b4f2a; opacity: .85; }
     .nohand { padding: 20px; font-size: 11px; color: var(--dim); }
     /* Waiting-for-turn: cards visible, subdued, logically inert. */
     #hand.waiting .vcard { filter: saturate(.55) brightness(.8); pointer-events: none; cursor: default; }
@@ -627,7 +632,7 @@
       #actionBar { flex-wrap: wrap; justify-content: center; width: 92vw; bottom: 128px; }
       button.act { padding: 8px 11px; font-size: 11px; letter-spacing: 2px; }
       .vcard { width: 56px; height: 80px; }
-      #infoPanel { bottom: 104px; width: 90vw; }
+      #infoPanel { bottom: 176px; width: 90vw; }
       .panel { min-width: 86vw !important; padding: 26px 22px; }
     }
   </style>

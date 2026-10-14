@@ -651,6 +651,15 @@ function init(host: HTMLElement, loading: HTMLElement): void {
   setupContextBack()
 
   // Developer-only interaction diagnostics (localStorage 'kb.debug' = '1').
+  // Test hook: localStorage kb.autoplay=1 lets the AI also drive the local seat,
+  // so a whole game can be played unattended (used by the e2e test).
+  const AUTOPLAY = (() => {
+    try {
+      return localStorage.getItem('kb.autoplay') === '1'
+    } catch {
+      return false
+    }
+  })()
   const KB_DEBUG = (() => {
     try {
       return localStorage.getItem('kb.debug') === '1'
@@ -2538,6 +2547,14 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
   }
 
   function afterStateChange(): void {
+    ;(window as unknown as { __bronze: unknown }).__bronze = {
+      era: state.era,
+      round: state.round,
+      over: state.over,
+      turns: state.log.length,
+      track: music.currentTrack,
+      scores: state.players.map((p) => ({ name: p.name, vp: p.vp, money: p.money })),
+    }
     syncBoard(true)
     syncRoutes()
     hud.refresh(state, mode, selectedCardId)
@@ -2563,6 +2580,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       if (wanted !== lastTrackId) {
         lastTrackId = wanted
         music.setTrack(wanted)
+        hud.toast('\u266A ' + music.currentTrack)
       }
     }
     if (state.over) {
@@ -3128,9 +3146,9 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       aiTimer = null
     } else if (phase === 'game' && !state.over && !busy && !hud.popoverOpen) {
       const curAI = currentPlayer(state)
-      if (curAI.isAI && mode === 'idle') {
+      if ((curAI.isAI || AUTOPLAY) && mode === 'idle') {
         if (aiTimer === null) {
-          aiTimer = 1.0 + Math.random() * 0.9
+          aiTimer = AUTOPLAY ? 0.05 : 1.0 + Math.random() * 0.9
           const flavour = [
             'EVALUATING A BUILD',
             'PLANNING A NETWORK',
@@ -3148,7 +3166,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
             endAction()
           }
         }
-      } else if (!curAI.isAI) {
+      } else if (!curAI.isAI && !AUTOPLAY) {
         aiTimer = null
       }
     }
