@@ -27,6 +27,8 @@ try {
 } catch {
   await fail('human turn never started')
 }
+// The opening overlay keeps swallowing clicks for a moment after the banner appears.
+await page.waitForFunction(() => document.getElementById('overlay')?.classList.contains('hidden'), null, { timeout: 60000 }).catch(() => {})
 await page.waitForTimeout(1500)
 
 const hand = page.locator('#hand .vcard')
@@ -36,10 +38,25 @@ if (nHand < 5) await fail(`hand has only ${nHand} cards`)
 
 // 1. Selecting a card shows ONLY that card's options.
 const cityOf = async (i) => (await hand.nth(i).textContent()).replace(/\s+/g, ' ')
-await hand.nth(2).click()
-try { await ctx.first().waitFor({ state: 'visible', ...T }) } catch { await fail('no option cards after selecting a hand card') }
+const handShown = () => page.waitForFunction(() => !document.getElementById('hand').classList.contains('hide-hand'), null, T)
+// Some cards (e.g. a farm brewery with no network yet) have no legal build; skip those.
+const pickWithOptions = async (from) => {
+  for (let k = 0; k < nHand; k++) {
+    const i = (from + k) % nHand
+    await hand.nth(i).click(T)
+    await page.waitForTimeout(1200)
+    if ((await ctx.count()) > 0) return i
+    if (await page.locator('#ctxBackBtn').isVisible()) {
+      await page.locator('#ctxBackBtn').click(T)
+      await handShown()
+    }
+  }
+  return -1
+}
+const first = await pickWithOptions(2)
+if (first < 0) await fail('no hand card produced any build option')
 await page.waitForTimeout(600)
-const city = (await cityOf(2)).match(/LOCATION\s+(.+?)\s+(CITY|TOWN|FARM)/i)?.[1]
+const city = (await cityOf(first)).match(/LOCATION\s+(.+?)\s+(CITY|TOWN|FARM)/i)?.[1]
 const opts = await ctx.evaluateAll((els) => els.map((e) => e.textContent.replace(/\s+/g, ' ')))
 if (city && !city.includes('Brewery') && opts.some((t) => !t.includes(city))) await fail(`options for other cards leaked in: ${opts}`)
 
@@ -58,8 +75,7 @@ await page.locator('#ctxBackBtn').click(T)
 await page.waitForFunction(() => !document.getElementById('hand').classList.contains('hide-hand'), null, T)
 
 // 3. Another card can then be picked, and its option opens the confirm popover.
-await hand.nth(0).click()
-await ctx.first().waitFor({ state: 'visible', ...T })
+if ((await pickWithOptions(0)) < 0) await fail('no second card produced any build option')
 await page.waitForTimeout(600)
 await ctx.first().click(T)
 try {
@@ -82,6 +98,7 @@ try {
 } catch {
   await fail('human turn did not return after the build')
 }
+await page.waitForFunction(() => document.getElementById('overlay')?.classList.contains('hidden'), null, { timeout: 60000 }).catch(() => {})
 await page.waitForTimeout(1500)
 const logBefore = await page.evaluate(() => document.getElementById('logOl')?.textContent ?? '')
 await page.locator('button[data-act="DEVELOP"]').click(T)
