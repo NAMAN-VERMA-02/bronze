@@ -2202,6 +2202,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     for (const c of cards) {
       const node = document.getElementById(c.id)
       if (!node) continue
+      // Cards that only registered a handler in trayHandlers still resolve.
+      if (!c.onClick) c.onClick = () => trayHandlers.get(c.id)?.()
       node.addEventListener('mouseenter', () => c.onEnter?.())
       node.addEventListener('mouseleave', () => c.onLeave?.())
       // Single click previews/arms; double click confirms where the rules
@@ -2314,13 +2316,17 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
 
     // ---- BUILD — clicked option is AUTHORITATIVE; popover = confirm ----
     if (mode === 'BUILD') {
-      const opts = allBuildOptions(state, pid)
+      // A selected hand card scopes the tray to ITS options only; with no
+      // selection (e.g. BUILD from the action bar) every card's options show.
+      const all = allBuildOptions(state, pid)
+      const scoped = selectedCardId ? all.filter((o) => o.cardId === selectedCardId) : all
+      const opts = scoped
       const dedup = new Map<string, BuildOption>()
       for (const o of opts) {
         const k = `${o.cityId}:${o.kind}${o.overbuildKey ? ':ob' : ''}`
         if (!dedup.has(k)) dedup.set(k, o)
       }
-      const cards: CtItem[] = [...dedup.values()].slice(0, 12).map((o) => {
+      const cards: CtItem[] = [...dedup.values()].map((o) => {
         const id = `ct${traySeq++}`
         trayHandlers.set(id, () => {
           // The EXACT clicked option becomes the pending payload. Nothing
@@ -2346,7 +2352,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       mountCards(el, cards)
       updateHandNav()
       if (cards.length === 0)
-        el.insertAdjacentHTML('beforeend', '<span class="ct-note">No legal builds with the current hand.</span>')
+        el.insertAdjacentHTML('beforeend', '<span class="ct-note">No legal builds for this card — press BACK to pick another.</span>')
       return
     }
 

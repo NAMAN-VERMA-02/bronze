@@ -396,6 +396,7 @@
     #contextHand .ctcard:nth-child(odd) { rotate: -1.2deg; }
     #contextHand .ctcard:nth-child(even) { rotate: 1.1deg; }
     @keyframes ctxDeal { from { opacity: 0; transform: translateY(46px); } to { opacity: 1; transform: translateY(0); } }
+    #hand.hide-hand { pointer-events: none; }
     #hand.hide-hand .vcard { transform: translateY(64px) !important; opacity: 0; pointer-events: none; transition: transform .3s ease, opacity .3s ease; }
     #hand.hide-hand .vcard:hover { transform: translateY(64px) !important; }
 

@@ -13,7 +13,7 @@
     "test": "tsx shared/test/bronze.test.ts && tsx shared/test/rules.test.ts",
     "build": "npm run build -w client",
     "test:e2e": "node tests/e2e-autoplay.mjs",
-    "test:smoke": "node tests/e2e-smoke.mjs && node tests/e2e-table.mjs"
+    "test:smoke": "node tests/e2e-smoke.mjs && node tests/e2e-table.mjs && node tests/e2e-cards.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
