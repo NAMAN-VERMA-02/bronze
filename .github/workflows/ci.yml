@@ -16,3 +16,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build -w client
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build -w client
+      - name: Browser smoke test (play, autosave, continue)
+        run: |
+          npm run preview -w client -- --port 4173 &
+          sleep 5
+          npm run test:smoke
