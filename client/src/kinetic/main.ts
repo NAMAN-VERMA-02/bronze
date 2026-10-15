@@ -288,7 +288,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
   renderer.setPixelRatio(pixelRatio)
   renderer.setSize(host.clientWidth, host.clientHeight)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.3 // bright, readable tabletop exposure
+  renderer.toneMappingExposure = 1.0 // one step brighter than the original 0.82
   host.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
@@ -311,14 +311,14 @@ function init(host: HTMLElement, loading: HTMLElement): void {
 
   // Lighting hierarchy — the room is lit by ONE practical oil lamp;
   // sun-grade fill is gone so the lamp genuinely owns the table.
-  scene.add(new THREE.HemisphereLight(0xf2e4c8, 0x6a5742, 1.05))
-  const key = new THREE.DirectionalLight(0xffe2b0, 1.5)
+  scene.add(new THREE.HemisphereLight(0x2a2118, 0x0a0805, 0.5))
+  const key = new THREE.DirectionalLight(0xffd9a0, 0.62)
   key.position.set(6, 15, 5)
   scene.add(key)
-  const rim = new THREE.DirectionalLight(0x8aa0b8, 0.6)
+  const rim = new THREE.DirectionalLight(0x33404f, 0.28)
   rim.position.set(-10, 9, -9)
   scene.add(rim)
-  scene.add(new THREE.AmbientLight(0xfff2dc, 0.55))
+  scene.add(new THREE.AmbientLight(0x141019, 0.34))
 
   // ------------------------------ The oil lamp --------------------------------
   const lampGroup = new THREE.Group()
@@ -369,7 +369,6 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     g.rotation.y = yaw
     return g
   }
-  scene.add(buildSitter(-5.5, BOARD_D / 2 + 3.6, Math.PI))
   scene.add(buildSitter(6.5, -BOARD_D / 2 - 3.4, 0))
 
   const composer = new EffectComposer(renderer)
@@ -544,7 +543,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.0
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
@@ -880,7 +879,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.0
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
@@ -910,7 +909,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     openingTl = gsap.timeline({ onComplete: finish })
     openingTl.to(camera.position, { x: 3, y: 17, z: 20, duration: 2.4, ease: 'power2.inOut' }, 0)
     openingTl.to(cam, {
-      e: 1.3,
+      e: 1.0,
       duration: 2.2,
       ease: 'power1.inOut',
       onUpdate: () => {
@@ -1044,7 +1043,11 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     else if (h === 'join') screens.showPanel('join')
     else if (h === 'ai') screens.showPanel('create', { ai: true })
     else if (h === 'continue') {
-      if (!loadSavedGame()) location.replace('./')
+      // Defer: loading a save touches pawns/thrones that are declared further down in init().
+      screens.showPanel(null)
+      setTimeout(() => {
+        if (!loadSavedGame()) location.replace('./')
+      }, 0)
     }
     else screens.showPanel(null)
   }
@@ -1247,8 +1250,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
         reveal = clamp(reveal, 0.0, 1.0) * (0.35 + 0.65 * uGlobal + 0.65);
         reveal = clamp(reveal, 0.0, 1.0);
 
-        vec3 dormant = tex * vec3(0.88, 0.9, 0.96);            // readable even away from the lamp
-        vec3 lit     = tex * 1.25 + tex * tex * 0.2;           // awake engraving
+        vec3 dormant = tex * vec3(0.40, 0.42, 0.50);            // cool, sleeping
+        vec3 lit     = tex * 1.14 + tex * tex * 0.16;           // awake engraving
         vec3 col = mix(dormant, lit, reveal);
         col += warm * 0.10;                                     // firelight kiss
 
@@ -1637,6 +1640,38 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     return { group, ringMat, plateMat, baseY: 0.45 }
   }
 
+  // One throne per seated player, behind their pawn and facing the table.
+  const throneGroup = new THREE.Group()
+  scene.add(throneGroup)
+
+  function buildThrone(x: number, z: number, hex: number): THREE.Group {
+    const g = new THREE.Group()
+    const wood = new THREE.MeshStandardMaterial({ color: 0x2b1d12, roughness: 0.8 })
+    const velvet = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.9 })
+    const box = (w: number, h: number, d: number, m: THREE.Material, px: number, py: number, pz: number): THREE.Mesh => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m)
+      mesh.position.set(px, py, pz)
+      return mesh
+    }
+    g.add(box(2.3, 0.5, 2.1, wood, 0, 1.15, 0)) // seat frame
+    g.add(box(1.9, 0.28, 1.7, velvet, 0, 1.54, 0.05)) // cushion
+    g.add(box(2.3, 4.1, 0.34, wood, 0, 3.2, -0.95)) // tall back
+    g.add(box(1.7, 3.2, 0.12, velvet, 0, 3.0, -0.76)) // padded back panel
+    for (const sx of [-1, 1]) {
+      g.add(box(0.3, 0.2, 1.9, wood, sx * 1.15, 2.1, 0)) // armrest
+      g.add(box(0.3, 1.0, 0.3, wood, sx * 1.15, 1.6, 0.8)) // armrest post
+      g.add(box(0.34, 0.34, 0.34, wood, sx * 1.15, 0.5, 0.82)) // front leg
+      g.add(box(0.34, 0.34, 0.34, wood, sx * 1.15, 0.5, -0.82)) // back leg
+      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), brassMat)
+      finial.position.set(sx * 1.05, 5.4, -0.95)
+      g.add(finial)
+    }
+    g.add(box(2.5, 0.16, 0.42, brassMat, 0, 5.3, -0.95)) // brass crest
+    g.position.set(x, 0.4, z)
+    g.rotation.y = Math.atan2(-x, -z) // front faces the table centre
+    return g
+  }
+
   function syncPawns(): void {
     for (const p of pawns) {
       pawnGroup.remove(p.group)
@@ -1647,6 +1682,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     }
     pawns = []
     seatLanterns = []
+    for (const t of [...throneGroup.children]) throneGroup.remove(t)
     state.players.forEach((pl, i) => {
       const pawn = createPawn(pl.name, pl.css, pl.colorHex, i)
       // Player-scaled practical light: one lantern per seated player.
@@ -1657,6 +1693,9 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       pawn.group.add(lantern)
       seatLanterns.push(lantern)
       pawns.push(pawn)
+      const [ax, az] = PAWN_ANCHORS[i % PAWN_ANCHORS.length]
+      const len = Math.hypot(ax, az)
+      throneGroup.add(buildThrone(ax + (ax / len) * 3, az + (az / len) * 3, pl.colorHex))
     })
   }
 
@@ -2758,7 +2797,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.0
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
