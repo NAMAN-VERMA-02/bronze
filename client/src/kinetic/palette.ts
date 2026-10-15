@@ -1,7 +1,7 @@
 // Shared visual palette — Victorian industrial, restrained.
 export const PAL = {
-  bg: 0x1b1611,
-  table: 0x2e2216,
+  bg: 0x16120d,
+  table: 0x271c11,
   walnut: 0x2b2016,
   parchment: 0x251b11,
   brass: 0xb58a3a,

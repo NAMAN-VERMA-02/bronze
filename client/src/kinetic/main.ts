@@ -288,7 +288,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
   renderer.setPixelRatio(pixelRatio)
   renderer.setSize(host.clientWidth, host.clientHeight)
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.3 // bright, readable tabletop exposure
+  renderer.toneMappingExposure = 1.15 // readable but moody tabletop exposure
   host.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
@@ -311,14 +311,14 @@ function init(host: HTMLElement, loading: HTMLElement): void {
 
   // Lighting hierarchy — the room is lit by ONE practical oil lamp;
   // sun-grade fill is gone so the lamp genuinely owns the table.
-  scene.add(new THREE.HemisphereLight(0xf2e4c8, 0x6a5742, 1.05))
-  const key = new THREE.DirectionalLight(0xffe2b0, 1.5)
+  scene.add(new THREE.HemisphereLight(0xe0cdaa, 0x56452f, 0.92))
+  const key = new THREE.DirectionalLight(0xffdba5, 1.3)
   key.position.set(6, 15, 5)
   scene.add(key)
-  const rim = new THREE.DirectionalLight(0x8aa0b8, 0.6)
+  const rim = new THREE.DirectionalLight(0x6a7f94, 0.42)
   rim.position.set(-10, 9, -9)
   scene.add(rim)
-  scene.add(new THREE.AmbientLight(0xfff2dc, 0.55))
+  scene.add(new THREE.AmbientLight(0xe6d6bd, 0.48))
 
   // ------------------------------ The oil lamp --------------------------------
   const lampGroup = new THREE.Group()
@@ -544,7 +544,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.15
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
@@ -880,7 +880,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.15
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
@@ -910,7 +910,7 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     openingTl = gsap.timeline({ onComplete: finish })
     openingTl.to(camera.position, { x: 3, y: 17, z: 20, duration: 2.4, ease: 'power2.inOut' }, 0)
     openingTl.to(cam, {
-      e: 1.3,
+      e: 1.15,
       duration: 2.2,
       ease: 'power1.inOut',
       onUpdate: () => {
@@ -1247,8 +1247,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
         reveal = clamp(reveal, 0.0, 1.0) * (0.35 + 0.65 * uGlobal + 0.65);
         reveal = clamp(reveal, 0.0, 1.0);
 
-        vec3 dormant = tex * vec3(0.88, 0.9, 0.96);            // readable even away from the lamp
-        vec3 lit     = tex * 1.25 + tex * tex * 0.2;           // awake engraving
+        vec3 dormant = tex * vec3(0.75, 0.77, 0.85);            // dim but readable away from the lamp
+        vec3 lit     = tex * 1.2 + tex * tex * 0.18;           // awake engraving
         vec3 col = mix(dormant, lit, reveal);
         col += warm * 0.10;                                     // firelight kiss
 
@@ -2758,7 +2758,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       phase = 'game'
       busy = false
       controls.enabled = true
-      renderer.toneMappingExposure = 1.3
+      renderer.toneMappingExposure = 1.15
       camera.position.set(3, 17, 20)
       hud.refresh(state, mode, selectedCardId)
       renderTray()
