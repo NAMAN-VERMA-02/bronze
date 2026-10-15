@@ -28,7 +28,7 @@ if (await host.locator('#btnStart').isDisabled()) await fail('START GAME still d
 const guest = await ctx.newPage()
 guest.on('pageerror', (e) => errors.push('guest: ' + e.message))
 await guest.goto(`${base}/kinetic.html#join`)
-await guest.locator('#screenJoin input').first().fill('Guest')
+await guest.locator('#screenJoin input').first().fill('Guest', { timeout: 90000 }).catch(async () => fail('join form never appeared; screens: ' + (await guest.evaluate(() => [...document.querySelectorAll('[id^=screen]')].map((e) => e.id + ':' + e.className).join(' | ')).catch(() => 'n/a'))))
 await guest.locator('#inpCode').fill(code)
 await guest.locator('#btnDoJoin').click()
 await guest.waitForFunction(() => document.getElementById('screenJoin')?.classList.contains('hidden'), null, { timeout: 15000 }).catch(async () => fail('joining table ' + code + ' failed: ' + (await guest.locator('#joinMsg').textContent())))

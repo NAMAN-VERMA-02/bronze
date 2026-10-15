@@ -188,6 +188,7 @@
       position: fixed; bottom: 152px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 8px; z-index: 12; pointer-events: auto;
     }
+    body:has(#contextHand .ctcard) #actionBar { bottom: 172px; }
     #actionBar.locked { pointer-events: none; filter: saturate(.55) brightness(.85); }
     button.act {
       background: linear-gradient(180deg, #3d2f1d, var(--wood3));
@@ -396,6 +397,7 @@
     #contextHand .ctcard:nth-child(odd) { rotate: -1.2deg; }
     #contextHand .ctcard:nth-child(even) { rotate: 1.1deg; }
     @keyframes ctxDeal { from { opacity: 0; transform: translateY(46px); } to { opacity: 1; transform: translateY(0); } }
+    #hand.hide-hand { pointer-events: none; }
     #hand.hide-hand .vcard { transform: translateY(64px) !important; opacity: 0; pointer-events: none; transition: transform .3s ease, opacity .3s ease; }
     #hand.hide-hand .vcard:hover { transform: translateY(64px) !important; }
 
