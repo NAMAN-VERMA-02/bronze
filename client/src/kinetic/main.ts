@@ -526,6 +526,19 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     hud.closePopover()
     hud.hideOverlay()
     resetBoardVisuals()
+    lastSeed = state.seed // so Reset after Continue deals the same game
+    if (state.era === 'rail') {
+      // A saved rail-era game must show the rail map and routes straight away.
+      mapTex.dispose()
+      mapTex = makeMapTexture('rail')
+      revealUniforms.tMap.value = mapTex
+      for (const [, rv] of routes) {
+        if (LINKS.find((x) => x.id === rv.id)!.era === 'rail') {
+          rv.group.visible = true
+          rv.group.scale.set(1, 1, 1)
+        }
+      }
+    }
     phase = 'opening'
     document.body.classList.remove('pre-game')
     screens.hideAll()
@@ -562,7 +575,12 @@ function init(host: HTMLElement, loading: HTMLElement): void {
   }
 
   function refreshResumeSaved(): void {
-    const has = !!localStorage.getItem('kinetic.save')
+    let has = false
+    try {
+      has = !!localStorage.getItem('kinetic.save')
+    } catch {
+      /* storage blocked: no saved game to offer */
+    }
     document.getElementById('resumeSavedBtn')?.classList.toggle('hidden', !has)
   }
   document.getElementById('resumeSavedBtn')?.addEventListener('click', () => {

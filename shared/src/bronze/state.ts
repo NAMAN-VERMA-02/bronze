@@ -115,6 +115,14 @@ export const LINKS: LinkDef[] = [
   link('redditch', 'birmingham', 'rail'),
 ]
 
+// A few town pairs have both a canal and a rail link. Ids must be unique, so the rail copy gets a suffix.
+{
+  const seen = new Set<string>()
+  for (const l of LINKS) {
+    if (seen.has(l.id)) l.id = `${l.id}~rail`
+    seen.add(l.id)
+  }
+}
 export const LINK_BY_ID: Map<string, LinkDef> = new Map(LINKS.map((l) => [l.id, l]))
 
 export const MAP_AUDIT_EXPECTED = {
@@ -1008,6 +1016,11 @@ export function applyNetworkDouble(
   const la = LINK_BY_ID.get(linkA)
   const lb = LINK_BY_ID.get(linkB)
   if (!la || !lb) return 'Unknown route.'
+  if (linkA === linkB) return 'Choose two different routes.'
+  if (la.era !== 'rail' || lb.era !== 'rail') return 'Double-rail builds two rail routes.'
+  if (s.linksOwned[linkA] || s.linksOwned[linkB]) return 'Route already taken.'
+  const legalIds = new Set(legalNetworkLinks(s, playerId).map((l) => l.id))
+  if (!legalIds.has(linkA) && !legalIds.has(linkB)) return 'That line is not connected to your network.'
   const ends = [la.a, la.b, lb.a, lb.b]
   const coal = coalPlan(s, ends, 2)
   if (!coal) return 'Two rails consume 2 coal: connect to a coal mine or a merchant.'
@@ -1037,6 +1050,9 @@ export function resolveDevelop(
   const p = playerById(s, playerId)
   if (kinds.length < 1 || kinds.length > 2) return 'Develop removes one or two industries.'
   if (p.developLeft <= 0) return 'No developments remain this era.'
+  if (kinds.length > p.developLeft) return 'Not enough developments remain this era.'
+  if (new Set(kinds).size !== kinds.length) return 'Choose two different industries to develop.'
+  for (const k of kinds) if (!lowestAvailableLevel(p, k)) return `No ${k} tiles are left to develop.`
   const ironNeeded = kinds.length
   const ironP = ironPlan(s, ironNeeded)
   if (p.money < ironP.money) return `Develop needs £${ironP.money} for iron.`
@@ -1068,10 +1084,7 @@ export function applyDevelop(
   // visually by flipping the placed tile (kept for tactile interaction).
   const t = s.placed.find((x) => x.key === industryKey)
   if (t) {
-    const err = resolveDevelop(s, playerId, [t.kind])
-    if (err) return err
-    t.flipped = true
-    return null
+    return resolveDevelop(s, playerId, [t.kind])
   }
   return resolveDevelop(s, playerId, [])
 }
@@ -1130,6 +1143,7 @@ export function resolveSell(s: GameState, playerId: string, industryKey: string)
   p.vp += earnedVp
   p.vpSells += earnedVp
   t.flipped = true
+  t.scored = true // its VP was just awarded; era scoring must not count it again
   addLog(
     s,
     `${p.name} sold goods in ${CITY_BY_ID.get(t.cityId)!.name} (+£${gain}, +${earnedVp} VP${bonusText}).`,
@@ -1144,7 +1158,7 @@ export function applySell(s: GameState, playerId: string, industryKey: string): 
 
 export function resolveLoan(s: GameState, playerId: string): string | null {
   const p = playerById(s, playerId)
-  if (p.income < -6) return 'Income cannot fall further.'
+  if (p.income - 3 < -10) return 'Income cannot fall further.'
   const dErr = discardForAction(s, p)
   if (dErr) return dErr
   p.money += 30
@@ -1230,10 +1244,16 @@ function endRound(s: GameState): void {
   // 2) Spent money was banked as it was spent (tracked for ordering only).
   // 3) Income — with shortfall handling.
   for (const p of s.players) {
-    p.money += p.income
-    if (p.income < 0) {
-      p.vp += p.income // shortfall costs VP
-      addLog(s, `${p.name} suffers an income shortfall (${p.income}).`, 'event')
+    if (p.income >= 0) p.money += p.income
+    else {
+      // Pay what you can; each unpaid pound costs a victory point.
+      const due = -p.income
+      const paid = Math.min(due, Math.max(0, p.money))
+      p.money -= paid
+      if (paid < due) {
+        p.vp -= due - paid
+        addLog(s, `${p.name} suffers an income shortfall (-${due - paid} VP).`, 'event')
+      }
     }
     p.spent = 0
   }
@@ -1295,6 +1315,8 @@ function scoreLinks(s: GameState): void {
 function endCanalEra(s: GameState): void {
   scoreLinks(s)
   scoreFlippedIndustries(s)
+  // Canal links leave the board once scored; the railways start fresh.
+  for (const [lid] of Object.entries(s.linksOwned)) if (LINK_BY_ID.get(lid)?.era === 'canal') delete s.linksOwned[lid]
   // Obsolete L1 industries leave the board.
   const obsolete = s.placed.filter((t) => t.level === 1)
   s.placed = s.placed.filter((t) => t.level > 1)
@@ -1340,5 +1362,8 @@ export function hydrateGameState(raw: SerializedGame): GameState {
   if (typeof s.coalMarket !== 'number') s.coalMarket = COAL_MARKET_START
   if (typeof s.ironMarket !== 'number') s.ironMarket = IRON_MARKET_START
   s.merchantBonusUsed ??= {}
+  // Card ids come from a module counter; continue after the highest id already in the game.
+  const ids = [...s.deck, ...s.discard, ...s.players.flatMap((pl) => pl.hand)].map((c) => Number(/^card(\d+)$/.exec(c.id)?.[1] ?? -1))
+  cardSeq = Math.max(cardSeq, ...ids) + 1
   return s
 }
