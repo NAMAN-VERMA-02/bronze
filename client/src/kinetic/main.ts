@@ -2309,6 +2309,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     // The REAL hand slides away; contextual cards deal into its place —
     // BUILD included, so every action shares one interaction pattern.
     document.getElementById('hand')?.classList.add('hide-hand')
+    el.innerHTML = '' // never stack one mode's cards on another's
     el.classList.remove('ct-swap')
     void el.offsetWidth
     el.classList.add('ct-swap')
