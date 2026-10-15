@@ -4,6 +4,14 @@ import {
   currentPlayer,
   playerById,
   advanceTurn,
+  applyNetworkDouble,
+  applyDevelop,
+  hydrateGameState,
+  serializeGameState,
+  resolveScout,
+  legalActions,
+  LINKS,
+  LINK_BY_ID,
   resolveBuild,
   resolveNetwork,
   resolveDevelop,
@@ -82,7 +90,7 @@ function place(s: GameState, cityId: string, kind: IndustryType, ownerId: string
   check('a loan gives £30 and lowers income by three levels', !err && me.money === money + 30 && me.income === -3)
   const s2 = fresh()
   const p2 = currentPlayer(s2)
-  p2.income = -7
+  p2.income = -8
   check('a loan is refused when income cannot fall further', resolveLoan(s2, p2.id) !== null)
 }
 
@@ -272,7 +280,17 @@ function place(s: GameState, cityId: string, kind: IndustryType, ownerId: string
   const money = me.money
   advanceTurn(s)
   advanceTurn(s)
-  check('a negative income costs money and victory points at round end', me.money === money - 3 && me.vp === vp - 3)
+  check('a negative income is paid from money without losing victory points', me.money === money - 3 && me.vp === vp)
+}
+{
+  const s = fresh()
+  const me = playerById(s, s.order[0])
+  me.income = -5
+  me.money = 2
+  const vp = me.vp
+  advanceTurn(s)
+  advanceTurn(s)
+  check('an unpaid shortfall costs one victory point per pound and money never goes negative', me.money === 0 && me.vp === vp - 3)
 }
 {
   const s = fresh()
@@ -321,6 +339,80 @@ function finishEra(s: GameState): void {
   }
   check('the game ends after the rail era', s.over)
   check('each era lasts the same number of rounds', rounds.canal === roundsPerEra(2) && rounds.rail === roundsPerEra(2), JSON.stringify(rounds))
+}
+
+// ---------- Regressions found in review ----------
+{
+  const ids = LINKS.map((l) => l.id)
+  check('every link has a unique id', new Set(ids).size === ids.length)
+  check('every link id resolves to its own link', LINKS.every((l) => LINK_BY_ID.get(l.id) === l))
+  const s = fresh()
+  const me = currentPlayer(s)
+  const canalLinks = legalNetworkLinks(s, me.id)
+  check('every link offered in the canal era can be built', canalLinks.length > 0 && canalLinks.every((l) => LINK_BY_ID.get(l.id)!.era === 'canal'))
+  check('the walsall to birmingham canal link can be built', resolveNetwork(s, me.id, 'walsall~birmingham') === null)
+}
+{
+  const s = fresh()
+  const me = currentPlayer(s)
+  const t = place(s, 'birmingham', 'cotton', me.id)
+  resolveSell(s, me.id, t.key)
+  const vp = me.vp
+  finishEra(s)
+  check('a sold tile\'s victory points are only counted once', me.vp === vp)
+}
+{
+  const s = fresh()
+  const me = playerById(s, s.order[0])
+  s.linksOwned['stafford~stone'] = me.id
+  finishEra(s)
+  check('canal links are removed from the board when the canal era ends', Object.keys(s.linksOwned).length === 0)
+}
+{
+  const s = fresh()
+  const me = currentPlayer(s)
+  me.developLeft = 1
+  check('develop cannot use more developments than remain', resolveDevelop(s, me.id, ['cotton', 'coal']) !== null && me.developLeft === 1)
+  me.developLeft = 2
+  check('develop cannot name the same industry twice', resolveDevelop(s, me.id, ['iron', 'iron']) !== null && me.developLeft === 2)
+  const tile = place(s, 'birmingham', 'cotton', me.id)
+  applyDevelop(s, me.id, tile.key)
+  check('developing from the board does not flip a placed tile', !tile.flipped)
+}
+{
+  const s = fresh()
+  finishEra(s) // reach the rail era
+  const me = currentPlayer(s)
+  me.money = 100
+  place(s, 'birmingham', 'brewery', me.id, 1).resources = 1
+  me.beer = 1
+  const money = me.money
+  const hand = me.hand.length
+  check('double rail refuses the same route twice without charging', applyNetworkDouble(s, me.id, 'oxford~birmingham', 'oxford~birmingham') !== null && me.money === money && me.hand.length === hand)
+  check('double rail refuses a route that is already built without charging', (() => {
+    s.linksOwned['worcester~oxford'] = s.order[0]
+    return applyNetworkDouble(s, me.id, 'oxford~birmingham', 'worcester~oxford') !== null && me.money === money
+  })())
+  check('double rail refuses canal routes', applyNetworkDouble(s, me.id, 'walsall~birmingham', 'stafford~stone') !== null && me.money === money)
+}
+{
+  const s = fresh()
+  const me = currentPlayer(s)
+  me.income = -6
+  check('loan availability matches the loan itself', legalActions(s, me.id).LOAN === (resolveLoan(s, me.id) === null))
+  const s2 = fresh()
+  const p2 = currentPlayer(s2)
+  p2.income = -7
+  check('loan availability matches the loan at the income limit', legalActions(s2, p2.id).LOAN === (resolveLoan(s2, p2.id) === null))
+}
+{
+  const s = fresh()
+  const copy = hydrateGameState(JSON.parse(JSON.stringify(serializeGameState(s))))
+  const me = currentPlayer(copy)
+  check('scouting after loading a save creates unique card ids', resolveScout(copy, me.id) === null && (() => {
+    const all = [...copy.deck, ...copy.discard, ...copy.players.flatMap((p) => p.hand)].map((c) => c.id)
+    return new Set(all).size === all.length
+  })())
 }
 
 console.log(failed === 0 ? '\nBronze rule tests passed' : `\n${failed} rule test(s) FAILED`)
