@@ -15,7 +15,8 @@
     "client": "npm run dev -w client",
     "test": "tsx shared/test/bronze.test.ts && tsx shared/test/rules.test.ts && npm run smoke",
     "build": "npm run build -w client",
-    "test:e2e": "node tests/e2e-autoplay.mjs"
+    "test:e2e": "node tests/e2e-autoplay.mjs",
+    "test:smoke": "node tests/e2e-smoke.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -125,6 +125,8 @@
     .menu a:nth-child(1) { animation-delay: .15s; }
     .menu a:nth-child(2) { animation-delay: .25s; }
     .menu a:nth-child(3) { animation-delay: .35s; }
+    .menu a:nth-child(4) { animation-delay: .45s; }
+    .menu a[hidden] { display: none; }
     @keyframes settleIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
@@ -162,6 +164,7 @@
     <div class="tagline">BUILD • CONNECT • INDUSTRIALIZE</div>
     <div class="rule"></div>
     <nav class="menu">
+      <a id="continueLink" href="kinetic.html#continue" hidden>CONTINUE GAME</a>
       <a href="kinetic.html#create">CREATE TABLE</a>
       <a href="kinetic.html#join">JOIN TABLE</a>
       <a href="kinetic.html#ai">PLAY WITH AI</a>
@@ -172,6 +175,10 @@
   <script>
     // Very subtle depth: background layers lean away from the cursor.
     (function () {
+      // Offer to pick up the autosaved game.
+      try {
+        if (localStorage.getItem('kinetic.save')) document.getElementById('continueLink').hidden = false
+      } catch (e) { /* storage unavailable */ }
       var layers = document.querySelectorAll('.skyline, .silhouette, .smoke, .parchment')
       window.addEventListener('mousemove', function (e) {
         var nx = e.clientX / window.innerWidth - 0.5
