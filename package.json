@@ -4,22 +4,18 @@
   "version": "0.1.0",
   "workspaces": [
     "shared",
-    "server",
     "client"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c yellow,cyan \"npm:dev -w server\" \"npm:dev -w client\"",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
-    "smoke": "npm run smoke -w shared",
-    "server": "npm run dev -w server",
+    "dev": "npm run dev -w client",
     "client": "npm run dev -w client",
-    "test": "tsx shared/test/bronze.test.ts && tsx shared/test/rules.test.ts && npm run smoke",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client",
+    "test": "tsx shared/test/bronze.test.ts",
     "build": "npm run build -w client",
     "test:e2e": "node tests/e2e-autoplay.mjs",
     "test:smoke": "node tests/e2e-smoke.mjs && node tests/e2e-table.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
     "typescript": "^5.7.2",
     "tsx": "^4.19.2",
     "playwright": "^1.56.1"

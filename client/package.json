@@ -12,8 +12,6 @@
   "dependencies": {
     "@bronze/shared": "*",
     "gsap": "^3.15.0",
-    "pixi.js": "^8.6.6",
-    "socket.io-client": "^4.8.1",
     "three": "^0.185.1"
   },
   "devDependencies": {
