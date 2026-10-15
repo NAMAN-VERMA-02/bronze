@@ -76,6 +76,25 @@ try {
 } catch {
   await fail('confirm did not change the game log')
 }
+// 5. Next turn: DEVELOP — pick a tile, then the CONFIRM card resolves it.
+try {
+  await page.waitForFunction(() => /INDUSTRIALIST'S TURN/i.test(document.getElementById('turnBanner')?.textContent ?? ''), null, { timeout: 120000 })
+} catch {
+  await fail('human turn did not return after the build')
+}
+await page.waitForTimeout(1500)
+const logBefore = await page.evaluate(() => document.getElementById('logOl')?.textContent ?? '')
+await page.locator('button[data-act="DEVELOP"]').click(T)
+await ctx.first().waitFor({ state: 'visible', ...T })
+await page.waitForTimeout(600)
+await ctx.first().click(T)
+await page.waitForTimeout(400)
+await ctx.last().click(T)
+try {
+  await page.waitForFunction((b) => (document.getElementById('logOl')?.textContent ?? '') !== b, logBefore, T)
+} catch {
+  await fail('develop CONFIRM card did nothing')
+}
 if (errors.length) await fail('page errors')
 console.log('cards ok')
 await browser.close()

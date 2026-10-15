@@ -2180,6 +2180,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     }
     const countEl = el.querySelector('[data-role="count"]')
     const costEl = el.querySelector('[data-role="cost"]')
+    el.querySelector('[data-role="count"]')?.closest('.ctcard')?.classList.toggle('dis', devSelected.length === 0)
     if (countEl) countEl.textContent = `${devSelected.length} TILE${devSelected.length === 1 ? '' : 'S'}`
     if (costEl) costEl.textContent = `IRON ×${devSelected.length}`
   }
@@ -2498,13 +2499,18 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
           <div class="ct-era">TAP TO CONFIRM</div>
         </div>`,
       )
+      document.getElementById(cid)?.addEventListener('click', () => {
+        if (devSelected.length === 0) return nudgeFromMessage('Pick at least one tile to develop.')
+        if (!canExecute(cid)) return
+        trayHandlers.get(cid)?.()
+      })
       el.insertAdjacentHTML('beforeend', '<span class="ct-note">Tap to arm (max 2) · double-tap a tile to develop it instantly.</span>')
       return
     }
 
     // ---- SELL — connected goods ----
     if (mode === 'SELL') {
-      const items = sellableIndustries(state, pid).slice(0, 8)
+      const items = sellableIndustries(state, pid)
       const cards: CtItem[] = items.map((t) => {
         const id = `ct${traySeq++}`
         trayHandlers.set(id, () => {
