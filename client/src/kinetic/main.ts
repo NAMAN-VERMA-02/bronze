@@ -2180,6 +2180,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     }
     const countEl = el.querySelector('[data-role="count"]')
     const costEl = el.querySelector('[data-role="cost"]')
+    el.querySelector('[data-role="count"]')?.closest('.ctcard')?.classList.toggle('dis', devSelected.length === 0)
     if (countEl) countEl.textContent = `${devSelected.length} TILE${devSelected.length === 1 ? '' : 'S'}`
     if (costEl) costEl.textContent = `IRON ×${devSelected.length}`
   }
@@ -2202,6 +2203,8 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     for (const c of cards) {
       const node = document.getElementById(c.id)
       if (!node) continue
+      // Cards that only registered a handler in trayHandlers still resolve.
+      if (!c.onClick) c.onClick = () => trayHandlers.get(c.id)?.()
       node.addEventListener('mouseenter', () => c.onEnter?.())
       node.addEventListener('mouseleave', () => c.onLeave?.())
       // Single click previews/arms; double click confirms where the rules
@@ -2307,6 +2310,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
     // The REAL hand slides away; contextual cards deal into its place —
     // BUILD included, so every action shares one interaction pattern.
     document.getElementById('hand')?.classList.add('hide-hand')
+    el.innerHTML = '' // never stack one mode's cards on another's
     el.classList.remove('ct-swap')
     void el.offsetWidth
     el.classList.add('ct-swap')
@@ -2314,13 +2318,17 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
 
     // ---- BUILD — clicked option is AUTHORITATIVE; popover = confirm ----
     if (mode === 'BUILD') {
-      const opts = allBuildOptions(state, pid)
+      // A selected hand card scopes the tray to ITS options only; with no
+      // selection (e.g. BUILD from the action bar) every card's options show.
+      const all = allBuildOptions(state, pid)
+      const scoped = selectedCardId ? all.filter((o) => o.cardId === selectedCardId) : all
+      const opts = scoped
       const dedup = new Map<string, BuildOption>()
       for (const o of opts) {
         const k = `${o.cityId}:${o.kind}${o.overbuildKey ? ':ob' : ''}`
         if (!dedup.has(k)) dedup.set(k, o)
       }
-      const cards: CtItem[] = [...dedup.values()].slice(0, 12).map((o) => {
+      const cards: CtItem[] = [...dedup.values()].map((o) => {
         const id = `ct${traySeq++}`
         trayHandlers.set(id, () => {
           // The EXACT clicked option becomes the pending payload. Nothing
@@ -2346,7 +2354,7 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
       mountCards(el, cards)
       updateHandNav()
       if (cards.length === 0)
-        el.insertAdjacentHTML('beforeend', '<span class="ct-note">No legal builds with the current hand.</span>')
+        el.insertAdjacentHTML('beforeend', '<span class="ct-note">No legal builds for this card — press BACK to pick another.</span>')
       return
     }
 
@@ -2491,13 +2499,18 @@ Hand cards: ${currentPlayer(state).hand.length} · Context cards: ${document.que
           <div class="ct-era">TAP TO CONFIRM</div>
         </div>`,
       )
+      document.getElementById(cid)?.addEventListener('click', () => {
+        if (devSelected.length === 0) return nudgeFromMessage('Pick at least one tile to develop.')
+        if (!canExecute(cid)) return
+        trayHandlers.get(cid)?.()
+      })
       el.insertAdjacentHTML('beforeend', '<span class="ct-note">Tap to arm (max 2) · double-tap a tile to develop it instantly.</span>')
       return
     }
 
     // ---- SELL — connected goods ----
     if (mode === 'SELL') {
-      const items = sellableIndustries(state, pid).slice(0, 8)
+      const items = sellableIndustries(state, pid)
       const cards: CtItem[] = items.map((t) => {
         const id = `ct${traySeq++}`
         trayHandlers.set(id, () => {
