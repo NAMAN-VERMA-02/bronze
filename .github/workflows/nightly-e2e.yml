@@ -1,0 +1,23 @@
+name: Nightly full game
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+jobs:
+  full-game:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build -w client
+      - name: Play a full game vs AI to final scoring
+        run: |
+          npm run preview -w client -- --port 4173 &
+          sleep 5
+          npm run test:e2e -- http://localhost:4173
