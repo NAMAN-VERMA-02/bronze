@@ -188,6 +188,7 @@
       position: fixed; bottom: 152px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 8px; z-index: 12; pointer-events: auto;
     }
+    body:has(#contextHand .ctcard) #actionBar { bottom: 172px; }
     #actionBar.locked { pointer-events: none; filter: saturate(.55) brightness(.85); }
     button.act {
       background: linear-gradient(180deg, #3d2f1d, var(--wood3));

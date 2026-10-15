@@ -48,6 +48,15 @@ await page.locator('#ctxBackBtn').click(T)
 await page.waitForFunction(() => !document.getElementById('hand').classList.contains('hide-hand'), null, T)
 if ((await ctx.count()) !== 0) await fail('option cards remained after BACK')
 
+// 2b. Switching tray modes directly never leaves the previous mode's cards behind.
+await page.getByRole('button', { name: 'NETWORK' }).first().click(T)
+await ctx.first().waitFor({ state: 'visible', ...T })
+await page.getByRole('button', { name: 'DEVELOP' }).first().click(T)
+await page.waitForTimeout(800)
+if ((await page.locator('#contextHand .ct-arrow').count()) !== 0) await fail('network cards stayed in the DEVELOP tray')
+await page.locator('#ctxBackBtn').click(T)
+await page.waitForFunction(() => !document.getElementById('hand').classList.contains('hide-hand'), null, T)
+
 // 3. Another card can then be picked, and its option opens the confirm popover.
 await hand.nth(0).click()
 await ctx.first().waitFor({ state: 'visible', ...T })
