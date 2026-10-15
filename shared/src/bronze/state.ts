@@ -1305,7 +1305,7 @@ function endCanalEra(s: GameState): void {
   }
   // Merchant beer resets implicitly (not tracked globally here).
   s.era = 'rail'
-  s.round = 0 // endRound will ++ to 1
+  s.round = 1 // endCanalEra runs after endRound's increment, so the rail era starts at round 1
   addLog(s, 'CANAL ERA SCORED — the railways arrive.', 'event')
 }
 
