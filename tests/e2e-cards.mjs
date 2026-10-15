@@ -27,6 +27,8 @@ try {
 } catch {
   await fail('human turn never started')
 }
+// The opening overlay keeps swallowing clicks for a moment after the banner appears.
+await page.waitForFunction(() => document.getElementById('overlay')?.classList.contains('hidden'), null, { timeout: 60000 }).catch(() => {})
 await page.waitForTimeout(1500)
 
 const hand = page.locator('#hand .vcard')
@@ -82,6 +84,7 @@ try {
 } catch {
   await fail('human turn did not return after the build')
 }
+await page.waitForFunction(() => document.getElementById('overlay')?.classList.contains('hidden'), null, { timeout: 60000 }).catch(() => {})
 await page.waitForTimeout(1500)
 const logBefore = await page.evaluate(() => document.getElementById('logOl')?.textContent ?? '')
 await page.locator('button[data-act="DEVELOP"]').click(T)
