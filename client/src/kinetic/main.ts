@@ -1043,6 +1043,9 @@ function init(host: HTMLElement, loading: HTMLElement): void {
     if (h === 'create') screens.showPanel('create')
     else if (h === 'join') screens.showPanel('join')
     else if (h === 'ai') screens.showPanel('create', { ai: true })
+    else if (h === 'continue') {
+      if (!loadSavedGame()) location.replace('./')
+    }
     else screens.showPanel(null)
   }
 
