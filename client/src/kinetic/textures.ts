@@ -336,10 +336,10 @@ export function makeMapTexture(era: Era): THREE.CanvasTexture {
   canvas.height = H
   const ctx = canvas.getContext('2d')!
   const grad = ctx.createLinearGradient(0, 0, W, H)
-  grad.addColorStop(0, '#483826')
-  grad.addColorStop(0.45, '#523f29')
-  grad.addColorStop(0.75, '#463725')
-  grad.addColorStop(1, '#392c1e')
+  grad.addColorStop(0, '#251b11')
+  grad.addColorStop(0.45, '#2d2115')
+  grad.addColorStop(0.75, '#231a10')
+  grad.addColorStop(1, '#1c140c')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, H)
 
@@ -355,10 +355,10 @@ export function makeMapTexture(era: Era): THREE.CanvasTexture {
   // Edge wear vignette.
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.78)
   vg.addColorStop(0, 'rgba(0,0,0,0)')
-  vg.addColorStop(1, 'rgba(0,0,0,0.34)')
+  vg.addColorStop(1, 'rgba(0,0,0,0.5)')
   ctx.fillStyle = vg
   ctx.fillRect(0, 0, W, H)
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'
   ctx.lineWidth = 26
   ctx.strokeRect(0, 0, W, H)
 
