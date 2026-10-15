@@ -5,8 +5,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "smoke": "tsx test/smoke.ts"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
