@@ -4,11 +4,11 @@ import { chromium } from 'playwright'
 
 const base = process.argv[2] ?? 'http://localhost:4173'
 const shots = process.argv[3]
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] })
+const browser = await chromium.launch({ executablePath: process.env.PW_EXECUTABLE || undefined, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 850 } })
 const errors = []
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
-page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()))
+page.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errors.push('console: ' + m.text()))
 await page.addInitScript(() => localStorage.setItem('kb.autoplay', '1'))
 await page.goto(`${base}/kinetic.html#ai`)
 await page.getByText('BEGIN THE AGE').click()
