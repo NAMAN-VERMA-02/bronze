@@ -24,14 +24,15 @@ Useful scripts (defined in the root `package.json`):
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Runs **server + client** together (full multiplayer forge + game) |
+| `npm run dev` | Same as `npm run client` |
 | `npm run client` | Client only — Home page & BRONZE game |
-| `npm run typecheck` | TypeScript check across shared/server/client |
+| `npm run typecheck` | TypeScript check across shared and client |
 | `npm run build` | Production build of every workspace |
-| `npm run smoke` | Shared-package smoke tests |
+| `npm test` | Bronze rules-engine tests |
+| `npm run test:smoke` | Browser smoke tests (needs a running `vite preview` on :4173) |
 
 Production output lands in `client/dist/` (multi-page: `index.html`,
-`kinetic.html`, `forge.html`).
+`kinetic.html`).
 
 ## 3. URLs
 
@@ -39,7 +40,6 @@ Production output lands in `client/dist/` (multi-page: `index.html`,
 | --- | --- |
 | `/` | **HOME** — cinematic Victorian workshop entry (Create / Join / Play-with-AI) |
 | `/kinetic.html` | **GAME** — the full BRONZE tabletop (also reachable via home buttons, deep-links `#create`, `#join`, `#ai`) |
-| `/forge.html` | Legacy multiplayer "Digital Forge" (PixiJS + socket.io prototype) |
 
 Opening `/` never starts a game. Starting a match is always an explicit action.
 
@@ -52,16 +52,13 @@ ai26aug/
 ├─ HOW_TO_RUN.md                 # this file
 ├─ package.json                  # workspaces + scripts
 ├─ shared/src/
-│  ├─ engine/{logic,setup,rng}.ts# original multiplayer rules prototype
-│  └─ data/{map,tiles,cards}.ts  # legacy multiplayer data
-├─ server/src/                   # socket.io host for the legacy forge
+│  ├─ bronze/{state,ai}.ts       # the one rules engine and the AI
+│  └─ data/tiles.ts              # tile data and market prices
 └─ client/
    ├─ index.html                 # HOME page (pure CSS/SVG atmosphere)
    ├─ kinetic.html               # GAME page shell (HUD markup + styles)
-   ├─ forge.html                 # legacy multiplayer page
-   ├─ vite.config.ts             # dev proxy + multi-page build inputs
+   ├─ vite.config.ts             # multi-page build inputs
    └─ src/
-      ├─ main.ts                 # legacy forge entry
       └─ kinetic/                # ★ THE GAME
          ├─ main.ts              # scene bootstrap, camera, interaction glue,
          │                       #   opening cinematic, reveal uniforms,

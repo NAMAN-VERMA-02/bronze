@@ -1,3 +1,5 @@
+> **Historical:** this report covers the old Forge engine and socket.io server, which were removed. The Bronze engine is tested by `shared/test/bronze.test.ts`.
+
 # QA Test Report — Bronze Digital Platform
 
 **Run date:** August 26, 2026 · **Build:** v0.1.0 (local workspace) · **Tester:** ox-alpha agent (QA persona, §5.1)
