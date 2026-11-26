@@ -1,13 +1,11 @@
-// The Aurel Valley score: a composed elven-medieval air in 6/8, D Dorian.
-// Plucked harp (Karplus-Strong), recorder melody, string pad, bodhran pulse
-// and war drums. Pure Web Audio, no files. Notes are scheduled ahead on the
+// The Aurel Valley score: a composed flute air in 6/8, D Dorian, in a stone
+// hall with an echo: a slow tavern whistle over a soft frame drum. War drums
+// sound for market ticks. Pure Web Audio, no files. Notes are scheduled ahead on the
 // audio clock, so timing stays steady even when the main thread is busy.
 
 type Scene = 'home' | 'game' | 'tense' | 'end'
 
-const D3 = 50
 const D4 = 62
-const EIGHTH = 0.36 // seconds; 6/8 at about 56 dotted-quarter beats a minute
 const BAR = 6
 const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12)
 
@@ -36,17 +34,19 @@ const THEME_B: Bar[] = [
   [Am, [[7, 3], [10, 1], [9, 1], [7, 1]]],
   [Dm, [[2, 2], [0, 4]]],
 ]
-// The order the themes play in, and who carries the tune.
-const FORM: { theme: Bar[]; lead: 'harp' | 'flute' | 'none'; up?: boolean }[] = [
-  { theme: THEME_A, lead: 'none' },
-  { theme: THEME_A, lead: 'flute' },
-  { theme: THEME_B, lead: 'flute' },
-  { theme: THEME_A, lead: 'harp', up: true },
-  { theme: THEME_B, lead: 'none' },
-  { theme: THEME_A, lead: 'flute', up: true },
+// The order the themes play in; `up` lifts a section an octave.
+const FORM: { theme: Bar[]; up?: boolean }[] = [
+  { theme: THEME_A },
+  { theme: THEME_B },
+  { theme: THEME_A, up: true },
+  { theme: THEME_B, up: true },
 ]
-// Harp accompaniment per eighth: chord-tone index (0 root, 1 third, 2 fifth) and octave.
-const ARP: [number, number][] = [[0, -12], [2, -12], [0, 0], [1, 0], [2, 0], [1, 0]]
+
+// The tavern whistle, played slow and soft over a gentle frame-drum pulse.
+type Tone = { harm: number; breath: number; vibRate: number; vibDepth: number; attack: number; peak: number; legato: number }
+const WHISTLE: Tone = { harm: 0.13, breath: 0.045, vibRate: 4.6, vibDepth: 0.005, attack: 0.06, peak: 0.18, legato: 0.92 }
+const EIGHTH = 0.34 // seconds; about 59 dotted-quarter beats a minute
+const ECHO = 0.25
 
 export class Music {
   private ctx: AudioContext | null = null
@@ -55,7 +55,6 @@ export class Music {
   private verb: GainNode | null = null
   private echo: GainNode | null = null
   private noise: AudioBuffer | null = null
-  private plucks = new Map<number, AudioBuffer>()
   private timer = 0
   private next = 0
   private step = 0
@@ -146,42 +145,14 @@ export class Music {
     const e = step % BAR
     const barNo = Math.floor(step / BAR)
     const part = FORM[Math.floor(barNo / 8) % FORM.length]
-    const [chord, tune] = part.theme[barNo % 8]
-    const sc = this.scene
-    const calm = sc === 'end'
-
-    // Harp: rolling chord, thinner when calm.
-    const [ci, oct] = ARP[e]
-    if (!calm || e % 2 === 0) this.harp(D3 + 12 + chord[ci] + oct, t, e === 0 ? 0.9 : 0.55)
-    if (e === 0) this.harp(D3 - 12 + chord[0], t, 0.8)
-    if (e === 3 && !calm) this.harp(D3 - 12 + chord[2], t, 0.5)
-
-    // String pad, one voicing per bar.
-    if (e === 0) this.pad(chord, t, EIGHTH * BAR)
-
-    // The tune.
-    // The menu plays the flute air throughout; in play the lead passes between flute and harp.
-    const lead = sc === 'end' || sc === 'home' ? 'flute' : part.lead
-    if (lead !== 'none') {
-      let at = 0
-      for (const [n, len] of tune) {
-        if (at === e) {
-          const m = D4 + n + (part.up ? 12 : 0)
-          if (lead === 'flute') this.flute(m, t, len * EIGHTH * 0.96)
-          else this.harp(m + 12, t, 0.75)
-        }
-        at += len
-      }
+    const [, tune] = part.theme[barNo % 8]
+    let at = 0
+    for (const [n, len] of tune) {
+      if (at === e) this.flute(D4 + n + (part.up ? 12 : 0), t, len * EIGHTH * WHISTLE.legato, WHISTLE, ECHO)
+      at += len
     }
-
-    // Percussion: soft bodhran in play, a driving ostinato in the last Age.
-    if (sc === 'game' && (e === 0 || e === 3)) this.bodhran(t, e === 0 ? 0.55 : 0.35)
-    if (sc === 'tense') {
-      if (e === 0 || e === 3) this.taiko(t, e === 0 ? 0.55 : 0.4)
-      this.bodhran(t, e === 0 || e === 3 ? 0.5 : 0.22)
-    }
-    // A bell marks the start of each new section.
-    if (e === 0 && barNo % 8 === 0) this.bell(D4 + 12 + chord[0], t)
+    // A soft heartbeat on the two main beats of each 6/8 bar.
+    if (e === 0 || e === 3) this.bodhran(t, e === 0 ? 0.32 : 0.2)
   }
 
   // ---------------------------------------------------------------- instruments
@@ -218,51 +189,7 @@ export class Music {
     }
   }
 
-  /** Karplus-Strong string: a noise burst circulating in a damped delay line. */
-  private pluckBuffer(midi: number): AudioBuffer {
-    const hit = this.plucks.get(midi)
-    if (hit) return hit
-    const ctx = this.ctx!
-    const sr = ctx.sampleRate
-    const f = hz(midi)
-    const len = Math.floor(sr * 2.6)
-    const buf = ctx.createBuffer(1, len, sr)
-    const y = buf.getChannelData(0)
-    // The two-tap averaging filter adds half a sample of delay; take it out of the line.
-    const period = sr / f - 0.5
-    const D = Math.floor(period)
-    const frac = period - D
-    const t60 = 3.2 - Math.min(2.2, (midi - 40) * 0.045) // low strings ring longer
-    const decay = Math.pow(10, -3 / (t60 * f))
-    let lp = 0
-    for (let i = 0; i < D + 2; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.55; y[i] = lp }
-    for (let i = D + 2; i < len; i++) {
-      const a = (1 - frac) * y[i - D] + frac * y[i - D - 1]
-      const b = (1 - frac) * y[i - D - 1] + frac * y[i - D - 2]
-      y[i] = decay * 0.5 * (a + b)
-    }
-    let peak = 0
-    for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(y[i]))
-    for (let i = 0; i < len; i++) y[i] /= peak || 1
-    this.plucks.set(midi, buf)
-    return buf
-  }
-
-  private harp(midi: number, t: number, vel: number): void {
-    const ctx = this.ctx!
-    const src = ctx.createBufferSource()
-    src.buffer = this.pluckBuffer(midi)
-    const f = ctx.createBiquadFilter()
-    f.type = 'lowpass'
-    f.frequency.value = 2400 + vel * 2400
-    const g = ctx.createGain()
-    g.gain.value = 0.17 * vel
-    src.connect(f).connect(g)
-    this.route(g, 0.75, 0.55)
-    src.start(t)
-  }
-
-  private flute(midi: number, t: number, dur: number): void {
+  private flute(midi: number, t: number, dur: number, tone: Tone, echo: number): void {
     const ctx = this.ctx!
     const f0 = hz(midi)
     const o = ctx.createOscillator()
@@ -271,14 +198,14 @@ export class Music {
     o2.type = 'triangle'
     o2.frequency.value = f0 * 2
     const o2g = ctx.createGain()
-    o2g.gain.value = 0.08
+    o2g.gain.value = tone.harm
     // Vibrato blooms after the note settles.
     const vib = ctx.createOscillator()
-    vib.frequency.value = 5
+    vib.frequency.value = tone.vibRate
     const vg = ctx.createGain()
     vg.gain.setValueAtTime(0, t)
     vg.gain.linearRampToValueAtTime(0, t + Math.min(0.35, dur * 0.4))
-    vg.gain.linearRampToValueAtTime(f0 * 0.007, t + Math.min(0.9, dur))
+    vg.gain.linearRampToValueAtTime(f0 * tone.vibDepth, t + Math.min(0.9, dur))
     vib.connect(vg)
     vg.connect(o.frequency)
     vg.connect(o2.frequency)
@@ -289,51 +216,22 @@ export class Music {
     bf.frequency.value = f0 * 2.2
     bf.Q.value = 2.5
     const bg = ctx.createGain()
-    bg.gain.setValueAtTime(0.05, t)
+    bg.gain.setValueAtTime(tone.breath, t)
     bg.gain.exponentialRampToValueAtTime(0.008, t + 0.12)
     const g = ctx.createGain()
-    const peak = 0.075
+    const peak = tone.peak
     g.gain.setValueAtTime(0.0001, t)
-    g.gain.exponentialRampToValueAtTime(peak, t + 0.07)
+    g.gain.exponentialRampToValueAtTime(peak, t + tone.attack)
     g.gain.setValueAtTime(peak, t + Math.max(0.08, dur - 0.12))
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.08)
     o.connect(g)
     o2.connect(o2g).connect(g)
     breath.connect(bf).connect(bg).connect(g)
-    this.route(g, 0.6, 0.45, 0.35)
+    this.route(g, 0.6, 0.45, echo)
     const end = t + dur + 0.1
     for (const n of [o, o2, vib]) { n.start(t); n.stop(end) }
     breath.start(t, Math.random())
     breath.stop(end)
-  }
-
-  private pad(chord: number[], t: number, len: number): void {
-    const ctx = this.ctx!
-    const dark = this.scene === 'tense'
-    const f = ctx.createBiquadFilter()
-    f.type = 'lowpass'
-    f.frequency.value = dark ? 650 : 1000
-    f.Q.value = 0.4
-    const g = ctx.createGain()
-    const lvl = 0.028
-    g.gain.setValueAtTime(0.0001, t)
-    g.gain.exponentialRampToValueAtTime(lvl, t + len * 0.45)
-    g.gain.setValueAtTime(lvl, t + len * 0.8)
-    g.gain.exponentialRampToValueAtTime(0.0001, t + len * 1.35)
-    f.connect(g)
-    this.route(g, 0.5, 0.8)
-    const voices = [D3 + chord[0], D3 + chord[1] + 12, D3 + chord[2]]
-    for (const m of voices) {
-      for (const det of [-6, 6]) {
-        const o = ctx.createOscillator()
-        o.type = 'sawtooth'
-        o.frequency.value = hz(m)
-        o.detune.value = det
-        o.connect(f)
-        o.start(t)
-        o.stop(t + len * 1.4)
-      }
-    }
   }
 
   private bodhran(t: number, vel: number): void {
@@ -342,23 +240,23 @@ export class Music {
     o.frequency.setValueAtTime(150, t)
     o.frequency.exponentialRampToValueAtTime(70, t + 0.12)
     const g = ctx.createGain()
-    g.gain.setValueAtTime(0.32 * vel, t)
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28)
+    g.gain.setValueAtTime(0.4 * vel, t)
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25)
     const n = ctx.createBufferSource()
     n.buffer = this.noise
     const nf = ctx.createBiquadFilter()
     nf.type = 'bandpass'
     nf.frequency.value = 900
     const ng = ctx.createGain()
-    ng.gain.setValueAtTime(0.09 * vel, t)
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06)
+    ng.gain.setValueAtTime(0.12 * vel, t)
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
     o.connect(g)
     n.connect(nf).connect(ng).connect(g)
-    this.route(g, 0.8, 0.25)
+    this.route(g, 0.8, 0.2)
     o.start(t)
-    o.stop(t + 0.3)
+    o.stop(t + 0.27)
     n.start(t, Math.random())
-    n.stop(t + 0.07)
+    n.stop(t + 0.06)
   }
 
   private taiko(t: number, vel: number): void {
@@ -384,23 +282,5 @@ export class Music {
     o.stop(t + 0.85)
     n.start(t, Math.random())
     n.stop(t + 0.16)
-  }
-
-  private bell(midi: number, t: number): void {
-    const ctx = this.ctx!
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0.05, t)
-    g.gain.exponentialRampToValueAtTime(0.0005, t + 4)
-    this.route(g, 0.4, 0.9)
-    // Inharmonic partials give the metal its shimmer.
-    for (const [ratio, amp] of [[1, 1], [2.76, 0.45], [5.4, 0.22], [8.93, 0.1]]) {
-      const o = ctx.createOscillator()
-      o.frequency.value = hz(midi) * ratio
-      const og = ctx.createGain()
-      og.gain.value = amp
-      o.connect(og).connect(g)
-      o.start(t)
-      o.stop(t + 4)
-    }
   }
 }
