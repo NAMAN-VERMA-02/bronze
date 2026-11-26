@@ -168,6 +168,23 @@ function hostMenu(): void {
       return
     }
     hostNet.onLobby = () => hostLobby()
+    // A guest who drops out hands their seat to an AI, so the table never stalls.
+    hostNet.onLeave = (seat) => {
+      const spec = hostNet!.seats[seat]
+      if (!spec) return
+      Object.assign(spec, { isAI: true, personality: 'balanced' })
+      const p = state?.players[seat]
+      if (p) {
+        p.isAI = true
+        toast(`${p.name} left`, 'An AI lord takes their seat.')
+        hostNet!.broadcastState(state!)
+        lastTurn = ''
+        step()
+      } else {
+        hostNet!.broadcastLobby()
+        hostLobby()
+      }
+    }
     hostNet.onError = (m) => { const e = document.getElementById('o-err'); if (e) e.textContent = m }
     hostNet.onAction = (seat, a) => {
       const pid = `p${seat}`
@@ -720,7 +737,8 @@ function banner(big: string, small: string): void {
   }, 2300)
 }
 
-function flash(text: string): void { banner(text, '') }
+// A short flash never covers a banner that is still telling news (a tick, an Age).
+function flash(text: string): void { if ($('banner').classList.contains('hidden')) banner(text, '') }
 
 function toast(title: string, text: string): void { banner(title.toUpperCase(), text) }
 

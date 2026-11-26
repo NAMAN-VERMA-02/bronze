@@ -251,7 +251,7 @@ export function createGame(seats: SeatSpec[], seed = Date.now()): GameState {
   s.eventDeck = shuffle(s, EVENTS.map((e) => e.id))
   s.goals = shuffle(s, GOALS.map((g) => g.id)).slice(0, 3)
   dealContracts(s)
-  log(s, 'Age I begins. The river is open; rails come in Age II.')
+  log(s, 'Age I begins. The river is open; roads come in Age II.')
   return s
 }
 
@@ -600,7 +600,7 @@ export function apply(prev: GameState, pid: string, a: Action): GameState {
       // Capped so the last player in an Age can't bank a long jump.
       const gain = Math.min(steps, WAIT_CAP)
       p.money += gain
-      log(s, `${p.name} waited ${steps} and collected ${gain} marks.`, p.id)
+      log(s, `${p.name} waited ${steps} and collected ${gain} mark${gain === 1 ? '' : 's'}.`, p.id)
       advance(s, p, steps)
       break
     }

@@ -23,6 +23,7 @@ export class HostNet {
   onLobby: () => void = () => {}
   onAction: (seat: number, a: Action) => void = () => {}
   onError: (msg: string) => void = () => {}
+  onLeave: (seat: number) => void = () => {}
 
   constructor(readonly code: string, readonly seats: SeatSpec[]) {
     this.peer = new Peer(PREFIX + code)
@@ -44,8 +45,9 @@ export class HostNet {
         }
       })
       conn.on('close', () => {
-        this.guests = this.guests.filter((g) => g.conn !== conn)
-        this.onLobby()
+        const g = this.guests.find((x) => x.conn === conn)
+        this.guests = this.guests.filter((x) => x.conn !== conn)
+        if (g) this.onLeave(g.seat)
       })
     })
   }
