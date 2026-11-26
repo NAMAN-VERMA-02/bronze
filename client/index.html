@@ -74,9 +74,16 @@
       background: repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 1px, transparent 1px calc(100% / 18)), rgba(0,0,0,.35); }
     #track .tick { position: absolute; top: -3px; bottom: -3px; width: 3px; background: var(--gold); box-shadow: 0 0 8px var(--gold); }
     #track .tick span { position: absolute; top: 28px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--dim); white-space: nowrap; }
-    #track .tok { position: absolute; top: 3px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%;
-      background: var(--pc); border: 2px solid #f5e6c4; box-shadow: 0 2px 6px rgba(0,0,0,.6); transition: left .5s cubic-bezier(.3,1.4,.5,1), top .3s; }
-    #track .tok.turn { box-shadow: 0 0 0 3px rgba(216,178,90,.6), 0 0 14px var(--gold); }
+    #track .tok { position: absolute; width: 27px; height: 34px; margin-left: -13px; filter: drop-shadow(0 3px 3px rgba(0,0,0,.7));
+      transition: left .5s cubic-bezier(.3,1.4,.5,1), top .3s, transform .3s; }
+    #track .tok.turn { transform: translateY(-4px) scale(1.18); z-index: 1; }
+    .plate { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; }
+    .plate .pawn { width: 50px; height: 62px; flex: none; margin: -6px 0 -6px -2px; filter: drop-shadow(0 4px 4px rgba(0,0,0,.6)); transition: transform .3s; }
+    .plate.turn .pawn { transform: translateY(-3px) rotate(-4deg) scale(1.08); }
+    .plate .pb { flex: 1; display: flex; flex-direction: column; }
+    .plate .pb .tag { align-self: flex-end; }
+    .feedcard { display: flex; align-items: center; gap: 8px; }
+    .feedcard .pawn { width: 34px; height: 42px; flex: none; margin: -6px 0; filter: drop-shadow(0 3px 3px rgba(0,0,0,.6)); }
 
     #market { position: absolute; top: 12px; right: 12px; width: 230px; padding: 8px 12px 10px; }
     #market h3, #contracts h3, #me h3 { font-family: Cinzel, serif; font-size: 12px; letter-spacing: .2em; color: var(--gold); margin-bottom: 6px; }
@@ -145,6 +152,7 @@
 
     #topright { position: absolute; top: 12px; left: 234px; display: flex; gap: 6px; }
     #topright .btn { padding: 7px 10px; font-size: 11px; }
+    @media (max-width: 1280px) { #topright { top: 76px; } }
 
     #banner { position: fixed; left: 0; right: 0; top: 34%; z-index: 25; text-align: center; pointer-events: none; }
     #banner .in { display: inline-block; padding: 18px 60px; background: linear-gradient(90deg, transparent, rgba(12,9,8,.92) 20%, rgba(12,9,8,.92) 80%, transparent); }

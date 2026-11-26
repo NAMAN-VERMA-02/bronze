@@ -1101,14 +1101,12 @@ export class WarTable {
   private portraits = new Map<string, string>()
   private portraitKit: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera } | null = null
 
-  /** A lantern-lit picture of the real building model, as a data URL (cached). */
-  portrait(kind: Building['kind'], level: Building['level'], deposit: Building['deposit'], color: string): string {
-    const key = `${kind}:${level}:${deposit ?? ''}:${color}`
+  /** Render one object alone under lantern light into a cached PNG data URL. */
+  private snapshot(key: string, w: number, h: number, eye: [number, number, number], at: number, make: () => THREE.Object3D): string {
     const hit = this.portraits.get(key)
     if (hit) return hit
     if (!this.portraitKit) {
       const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
-      r.setSize(176, 144, false)
       r.toneMapping = THREE.ACESFilmicToneMapping
       r.outputColorSpace = THREE.SRGBColorSpace
       const scene = new THREE.Scene()
@@ -1117,16 +1115,18 @@ export class WarTable {
       const rim = new THREE.DirectionalLight(0x8fb0ff, 1.2)
       rim.position.set(-1.5, 1.2, -1)
       scene.add(key1, rim, new THREE.AmbientLight(0x6a5a50, 0.9))
-      const cam = new THREE.PerspectiveCamera(30, 176 / 144, 0.1, 20)
-      cam.position.set(1.15, 0.95, 1.5)
-      cam.lookAt(0, 0.33, 0)
-      this.portraitKit = { r, scene, cam }
+      this.portraitKit = { r, scene, cam: new THREE.PerspectiveCamera(30, 1, 0.1, 20) }
     }
     const { r, scene, cam } = this.portraitKit
-    // makeBuilding registers animated parts; a portrait must not leave them behind.
+    r.setSize(w, h, false)
+    cam.aspect = w / h
+    cam.updateProjectionMatrix()
+    cam.position.set(...eye)
+    cam.lookAt(0, at, 0)
+    // Builders register animated parts; a snapshot must not leave them behind.
     const nh = this.hammers.length
     const ns = this.spinners.length
-    const g = this.makeBuilding({ owner: '', kind, level, deposit, goods: {} } as Building, new THREE.Color(color).getHex())
+    const g = make()
     this.hammers.length = nh
     this.spinners.length = ns
     scene.add(g)
@@ -1135,6 +1135,51 @@ export class WarTable {
     scene.remove(g)
     this.portraits.set(key, url)
     return url
+  }
+
+  /** A lantern-lit picture of the real building model, as a data URL (cached). */
+  portrait(kind: Building['kind'], level: Building['level'], deposit: Building['deposit'], color: string): string {
+    return this.snapshot(`b:${kind}:${level}:${deposit ?? ''}:${color}`, 176, 144, [1.15, 0.95, 1.5], 0.33,
+      () => this.makeBuilding({ owner: '', kind, level, deposit, goods: {} } as Building, new THREE.Color(color).getHex()))
+  }
+
+  /** A carved game pawn in the lord's colour with their initial on a gold shield. */
+  pawn(color: string, name: string): string {
+    const initial = (name.trim()[0] ?? '?').toUpperCase()
+    return this.snapshot(`p:${color}:${initial}`, 96, 120, [0.45, 0.6, 1.38], 0.4, () => {
+      const g = new THREE.Group()
+      const body = mat(new THREE.Color(color).getHex(), { roughness: 0.38, metalness: 0.15 })
+      // Lathe profile: wide foot, waist, collar, neck; the head is a sphere.
+      const prof = [[0, 0], [0.26, 0], [0.27, 0.04], [0.22, 0.07], [0.2, 0.1], [0.13, 0.3], [0.1, 0.46], [0.17, 0.5], [0.17, 0.53], [0.09, 0.56], [0.08, 0.6]]
+      g.add(new THREE.Mesh(new THREE.LatheGeometry(prof.map(([x, y]) => new THREE.Vector2(x, y)), 32), body))
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 24, 16), body)
+      head.position.y = 0.7
+      g.add(head)
+      const gold = mat(0xd8b25a, { metalness: 0.8, roughness: 0.3 })
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.014, 8, 32), gold)
+      ring.rotation.x = Math.PI / 2
+      ring.position.y = 0.515
+      g.add(ring)
+      // Initial painted on a gold shield on the chest.
+      const c = document.createElement('canvas')
+      c.width = c.height = 128
+      const x = c.getContext('2d')!
+      x.fillStyle = '#d8b25a'
+      x.beginPath(); x.moveTo(14, 10); x.lineTo(114, 10); x.lineTo(114, 64); x.quadraticCurveTo(114, 108, 64, 122); x.quadraticCurveTo(14, 108, 14, 64); x.closePath(); x.fill()
+      x.fillStyle = '#2a1a0a'
+      x.font = '900 76px Cinzel, Georgia, serif'
+      x.textAlign = 'center'
+      x.textBaseline = 'middle'
+      x.fillText(initial, 64, 62)
+      const tex = new THREE.CanvasTexture(c)
+      tex.colorSpace = THREE.SRGBColorSpace
+      const shield = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.25), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4, metalness: 0.3 }))
+      shield.position.set(0, 0.27, 0.16)
+      shield.rotation.x = -0.12
+      g.add(shield)
+      g.rotation.y = 0.31
+      return g
+    })
   }
 
   // ------------------------------------------------------------ highlights

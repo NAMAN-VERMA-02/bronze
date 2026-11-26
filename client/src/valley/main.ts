@@ -630,16 +630,17 @@ function render(): void {
   }
   hud.innerHTML = `
     <div id="players">${s.players.map((p) => `
-      <div class="plate panel ${cur?.id === p.id ? 'turn' : ''}" style="--pc:${p.color}">
-        <div class="nm"><span>${esc(p.name)}</span><span class="tag">${p.isAI ? 'AI' : localIds.has(p.id) ? 'YOU' : 'LORD'}</span></div>
-        <div class="st"><b>${coin(p.money)}</b><b>${glory(p.vp)}</b><span class="amt">${ICON.time}${p.time}</span>${p.bonds ? `<span>bonds ${p.bonds}</span>` : ''}</div>
+      <div class="plate panel ${cur?.id === p.id ? 'turn' : ''}" style="--pc:${p.color}" title="${esc(p.name)}" aria-label="${esc(p.name)}">
+        <img class="pawn" src="${table.pawn(p.color, p.name)}" alt="" />
+        <div class="pb"><span class="tag">${p.isAI ? 'AI' : localIds.has(p.id) ? 'YOU' : 'LORD'}</span>
+        <div class="st"><b>${coin(p.money)}</b><b>${glory(p.vp)}</b><span class="amt">${ICON.time}${p.time}</span>${p.bonds ? `<span>bonds ${p.bonds}</span>` : ''}</div></div>
       </div>`).join('')}</div>
 
     <div id="track" class="panel">
       <div class="hd"><span>AGE ${V.roman(s.age)} · ${AGE_NAME[s.age - 1].toUpperCase().replace('THE ', '')}</span><span>${cur ? (localIds.has(cur.id) ? 'Your command' : `${esc(cur.name)} commands`) : ''}</span></div>
       <div class="bar">
         ${V.TICKS.map((t) => `<div class="tick" style="left:calc(${(t / V.AGE_LENGTH) * 100}% - 2px)"><span>${s.ticksDone.includes(t) ? ICON.check : ICON.flag}${t}</span></div>`).join('')}
-        ${s.players.map((p, i) => `<div class="tok ${cur?.id === p.id ? 'turn' : ''}" title="${esc(p.name)}" style="--pc:${p.color};left:${(p.time / V.AGE_LENGTH) * 100}%;top:${3 + (s.players.filter((q, j) => j < i && q.time === p.time).length) * -7}px"></div>`).join('')}
+        ${s.players.map((p, i) => `<img class="tok ${cur?.id === p.id ? 'turn' : ''}" src="${table.pawn(p.color, p.name)}" alt="${esc(p.name)}" title="${esc(p.name)}" style="left:${(p.time / V.AGE_LENGTH) * 100}%;top:${-8 - (s.players.filter((q, j) => j < i && q.time === p.time).length) * 5}px" />`).join('')}
       </div>
     </div>
 
@@ -722,7 +723,7 @@ function feedCard(name: string, color: string, text: string): void {
   card.style.setProperty('--pc', color)
   // Strip the actor's name from the start: the card header already shows it.
   const body = text.startsWith(name) ? text.slice(name.length).trim() : text
-  card.innerHTML = `<b>${esc(name)}</b><span>${iconize(esc(body))}</span>`
+  card.innerHTML = `<img class="pawn" src="${table.pawn(color, name)}" alt="${esc(name)}" title="${esc(name)}" /><span>${iconize(esc(body))}</span>`
   feed.prepend(card)
   while (feed.children.length > 3) feed.lastElementChild!.remove()
   setTimeout(() => {
