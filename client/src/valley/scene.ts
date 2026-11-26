@@ -1098,6 +1098,45 @@ export class WarTable {
     return g
   }
 
+  private portraits = new Map<string, string>()
+  private portraitKit: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.PerspectiveCamera } | null = null
+
+  /** A lantern-lit picture of the real building model, as a data URL (cached). */
+  portrait(kind: Building['kind'], level: Building['level'], deposit: Building['deposit'], color: string): string {
+    const key = `${kind}:${level}:${deposit ?? ''}:${color}`
+    const hit = this.portraits.get(key)
+    if (hit) return hit
+    if (!this.portraitKit) {
+      const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
+      r.setSize(176, 144, false)
+      r.toneMapping = THREE.ACESFilmicToneMapping
+      r.outputColorSpace = THREE.SRGBColorSpace
+      const scene = new THREE.Scene()
+      const key1 = new THREE.PointLight(0xffb060, 6, 6, 1.4)
+      key1.position.set(0.6, 0.9, 1.1)
+      const rim = new THREE.DirectionalLight(0x8fb0ff, 1.2)
+      rim.position.set(-1.5, 1.2, -1)
+      scene.add(key1, rim, new THREE.AmbientLight(0x6a5a50, 0.9))
+      const cam = new THREE.PerspectiveCamera(30, 176 / 144, 0.1, 20)
+      cam.position.set(1.15, 0.95, 1.5)
+      cam.lookAt(0, 0.33, 0)
+      this.portraitKit = { r, scene, cam }
+    }
+    const { r, scene, cam } = this.portraitKit
+    // makeBuilding registers animated parts; a portrait must not leave them behind.
+    const nh = this.hammers.length
+    const ns = this.spinners.length
+    const g = this.makeBuilding({ owner: '', kind, level, deposit, goods: {} } as Building, new THREE.Color(color).getHex())
+    this.hammers.length = nh
+    this.spinners.length = ns
+    scene.add(g)
+    r.render(scene, cam)
+    const url = r.domElement.toDataURL('image/png')
+    scene.remove(g)
+    this.portraits.set(key, url)
+    return url
+  }
+
   // ------------------------------------------------------------ highlights
 
   highlight(s: GameState): void {

@@ -120,6 +120,27 @@
     #picker { position: absolute; left: 50%; bottom: 160px; transform: translateX(-50%); padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 640px; }
     #picker .opt { min-width: 140px; text-align: left; padding: 9px 12px; }
     #picker .opt small { display: block; font-family: Cormorant Garamond, serif; letter-spacing: 0; color: var(--dim); font-size: 14px; margin-top: 2px; }
+    #picker { background: none; border: none; box-shadow: none; gap: 14px; }
+    #picker .opt.card { position: relative; width: 148px; min-width: 0; padding: 0 0 10px; cursor: pointer; overflow: hidden;
+      display: flex; flex-direction: column; align-items: center; border-radius: 14px; border: 1px solid rgba(216,178,90,.35);
+      background: radial-gradient(70% 55% at 50% 42%, rgba(255,170,80,.22), transparent 70%),
+                  linear-gradient(180deg, #1b2230 0%, #11141c 62%, #0b0c10 100%);
+      box-shadow: 0 14px 28px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,230,170,.12), inset 0 -18px 30px rgba(0,0,0,.5);
+      animation: cardin .32s cubic-bezier(.2,1.3,.4,1) both; transition: transform .16s, box-shadow .16s, border-color .16s; }
+    #picker .opt.card:nth-child(2) { animation-delay: .05s; } #picker .opt.card:nth-child(3) { animation-delay: .1s; }
+    #picker .opt.card:hover { transform: translateY(-6px) scale(1.04); border-color: var(--gold);
+      box-shadow: 0 20px 36px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,230,170,.2); }
+    #picker .opt.card:focus-visible { outline: 2px solid var(--gold2); outline-offset: 2px; }
+    #picker .opt.card img { width: 148px; height: 121px; display: block; filter: drop-shadow(0 6px 6px rgba(0,0,0,.6)); }
+    #picker .opt.card::after { content: ''; position: absolute; left: 22%; right: 22%; top: 104px; height: 10px; border-radius: 50%;
+      background: radial-gradient(rgba(0,0,0,.6), transparent 70%); z-index: -1; }
+    #picker .crest { position: absolute; top: 8px; left: 8px; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center; font-family: Cinzel, serif; font-weight: 900; font-size: 12px; color: #1d1408;
+      background: linear-gradient(180deg, #f3d488, #b88a32); box-shadow: 0 2px 5px rgba(0,0,0,.5); }
+    #picker .stats { display: flex; gap: 10px; font-size: 17px; font-weight: 700; color: var(--ink); }
+    #picker .stats .neg .ico { color: #f0a08a; }
+    @keyframes cardin { from { opacity: 0; transform: translateY(18px) scale(.92); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { #picker .opt.card { animation: none; } }
     #tip { position: absolute; pointer-events: none; padding: 6px 10px; font-size: 14px; max-width: 260px; z-index: 20; }
 
     #topright { position: absolute; top: 12px; left: 234px; display: flex; gap: 6px; }

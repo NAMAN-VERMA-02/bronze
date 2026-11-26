@@ -467,15 +467,18 @@ function setPending(t: ActType | null): void {
   render()
 }
 
-function picker(opts: { label: string; sub: string; act: Action }[]): void {
+function picker(opts: { label: string; sub: string; act: Action; img?: string; crest?: string }[]): void {
   $('picker')?.remove()
   const el = document.createElement('div')
   el.id = 'picker'
-  el.className = 'panel'
   opts.forEach((o) => {
     const b = document.createElement('button')
-    b.className = 'btn opt'
-    b.innerHTML = `${o.label}<small>${o.sub}</small>`
+    b.className = o.img ? 'opt card' : 'btn opt'
+    // Picture cards keep the name for screen readers and the tooltip only.
+    b.innerHTML = o.img
+      ? `<img src="${o.img}" alt="" /><span class="crest">${o.crest ?? ''}</span><span class="stats">${o.sub}</span>`
+      : `${o.label}<small>${o.sub}</small>`
+    if (o.img) { b.title = o.label; b.setAttribute('aria-label', o.label) }
     b.onclick = () => void commit(o.act)
     el.appendChild(b)
   })
@@ -502,13 +505,17 @@ table.onPick = (p: Pick) => {
   if (pending === 'build' && (p.kind === 'plot' || p.kind === 'building')) {
     const opts = legal.filter((a): a is Extract<Action, { type: 'build' }> => a.type === 'build' && a.town === p.town && a.slot === p.slot)
     const existing = state.plots[p.town][p.slot]
+    const me = V.currentPlayer(state)!
     picker(opts.map((a) => {
       const spec = V.BUILDINGS[a.kind]
       const cost = spec.cost[a.level - 1] - (existing ? spec.cost[existing.level - 1] : 0)
-      const what = a.kind === 'mine' ? `${GOOD_NAME[V.TOWN_BY_ID.get(a.town)!.deposit!]} Mine` : KIND_NAME[a.kind]
+      const deposit = a.kind === 'mine' ? V.TOWN_BY_ID.get(a.town)!.deposit : undefined
+      const what = a.kind === 'mine' ? `${GOOD_NAME[deposit!]} Mine` : KIND_NAME[a.kind]
       return {
         label: `${existing ? 'Upgrade to ' : ''}${what} ${V.roman(a.level)}`,
-        sub: `${coin(cost)} · ${glory(spec.vp[a.level - 1])} per Age · +${spec.income[a.level - 1]} income`,
+        img: table.portrait(a.kind, a.level, deposit, me.color),
+        crest: `${existing ? '↑ ' : ''}${V.roman(a.level)}`,
+        sub: `<span class="amt neg">${ICON.mark}${cost}</span><span class="amt">${ICON.glory}${spec.vp[a.level - 1]}</span><span class="amt" title="income each tick">+${spec.income[a.level - 1]}${ICON.mark}</span>`,
         act: a,
       }
     }))
