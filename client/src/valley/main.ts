@@ -46,6 +46,7 @@ let pending: ActType | null = null
 let legal: Action[] = []
 let busy = false
 let lastTurn: string | null = null
+let quietTimer = 0
 let hostNet: HostNet | null = null
 let guestNet: GuestNet | null = null
 let mouse = { x: 0, y: 0 }
@@ -333,6 +334,10 @@ async function begin(s: GameState, intro = true): Promise<void> {
   table.sync(s)
   render()
   music.setScene('game')
+  // Show the full table for a few seconds, then leave only the action bar.
+  document.body.classList.remove('quiet')
+  clearTimeout(quietTimer)
+  quietTimer = window.setTimeout(() => document.body.classList.add('quiet'), 4000)
   if (hostNet) hostNet.broadcastState(s)
   if (intro) {
     busy = true
