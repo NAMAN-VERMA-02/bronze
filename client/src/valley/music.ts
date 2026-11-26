@@ -148,7 +148,7 @@ export class Music {
     const part = FORM[Math.floor(barNo / 8) % FORM.length]
     const [chord, tune] = part.theme[barNo % 8]
     const sc = this.scene
-    const calm = sc === 'home' || sc === 'end'
+    const calm = sc === 'end'
 
     // Harp: rolling chord, thinner when calm.
     const [ci, oct] = ARP[e]
@@ -160,12 +160,13 @@ export class Music {
     if (e === 0) this.pad(chord, t, EIGHTH * BAR)
 
     // The tune.
-    const lead = sc === 'end' ? 'flute' : sc === 'home' ? (part.lead === 'none' ? 'none' : 'harp') : part.lead
+    // The menu plays the flute air throughout; in play the lead passes between flute and harp.
+    const lead = sc === 'end' || sc === 'home' ? 'flute' : part.lead
     if (lead !== 'none') {
       let at = 0
       for (const [n, len] of tune) {
         if (at === e) {
-          const m = D4 + n + (part.up && sc !== 'home' ? 12 : 0)
+          const m = D4 + n + (part.up ? 12 : 0)
           if (lead === 'flute') this.flute(m, t, len * EIGHTH * 0.96)
           else this.harp(m + 12, t, 0.75)
         }
@@ -314,7 +315,7 @@ export class Music {
     f.frequency.value = dark ? 650 : 1000
     f.Q.value = 0.4
     const g = ctx.createGain()
-    const lvl = this.scene === 'home' ? 0.02 : 0.028
+    const lvl = 0.028
     g.gain.setValueAtTime(0.0001, t)
     g.gain.exponentialRampToValueAtTime(lvl, t + len * 0.45)
     g.gain.setValueAtTime(lvl, t + len * 0.8)
