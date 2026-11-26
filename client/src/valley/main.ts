@@ -5,6 +5,7 @@ import { WarTable, plotPos, type Pick } from './scene'
 import { Music } from './music'
 import { SoundScape } from './sfx'
 import { GuestNet, HostNet, newCode, type HostMsg } from './net'
+import { ICON, coin, glory, iconize } from './icons'
 
 // ------------------------------------------------------------------ names
 
@@ -17,14 +18,14 @@ const AGE_HINT = [
   'Level III buildings unlock. The final reckoning comes.',
 ]
 type ActType = Action['type']
-const ACTS: { type: ActType; icon: string; label: string; key: string }[] = [
-  { type: 'build', icon: '🏰', label: 'Build', key: '1' },
-  { type: 'route', icon: '🛶', label: 'Route', key: '2' },
-  { type: 'run', icon: '⚒️', label: 'Run', key: '3' },
-  { type: 'deliver', icon: '📜', label: 'Deliver', key: '4' },
-  { type: 'trade', icon: '⚖️', label: 'Trade', key: '5' },
-  { type: 'bond', icon: '💰', label: 'Bond', key: '6' },
-  { type: 'wait', icon: '⏳', label: 'Wait', key: '7' },
+const ACTS: { type: ActType; label: string; key: string }[] = [
+  { type: 'build', label: 'Build', key: '1' },
+  { type: 'route', label: 'Route', key: '2' },
+  { type: 'run', label: 'Run', key: '3' },
+  { type: 'deliver', label: 'Deliver', key: '4' },
+  { type: 'trade', label: 'Trade', key: '5' },
+  { type: 'bond', label: 'Bond', key: '6' },
+  { type: 'wait', label: 'Wait', key: '7' },
 ]
 const SAVE_KEY = 'aurel.save.v1'
 const NAME_KEY = 'aurel.name'
@@ -256,23 +257,23 @@ function showHelp(): void {
   el.id = 'help'
   el.innerHTML = `<div class="card panel">
     <h2>HOW TO PLAY</h2>
-    <p>Three Ages. Score the most <b>VP</b> by the end of the Age of Crowns.</p>
+    <p>Three Ages. Win the most <b>glory</b> by the end of the Age of Crowns.</p>
     <h4>THE TIME TRACK</h4>
     <p>Every action costs time. Whoever is <b>furthest behind</b> on the track acts next, so cheap actions can let you move twice before a rival moves once. When everyone reaches 18, the Age ends.</p>
     <h4>ACTIONS</h4>
     <ul>
       <li><b>Build</b> (3): a Mine on a deposit, a Smelter, or (from Age II) a Forge, in or next to your lands. Or upgrade your own building.</li>
-      <li><b>Route</b> (2): open a river link (£5), or from Age II a road (£8 + 1 coal). Rivals pay you £1 to move goods over it.</li>
+      <li><b>Route</b> (2): open a river link (5 marks), or from Age II a road (8 marks + 1 coal). Rivals pay you 1 mark to move goods over it.</li>
       <li><b>Run</b> (1): mines dig ore; smelters turn 2 copper + tin + coal into bronze; forges turn 2 bronze + coal into arms. Missing inputs are bought from rivals (they get paid) or the exchange.</li>
-      <li><b>Deliver</b> (2): fill a contract with goods that can travel there. Big £ and VP.</li>
+      <li><b>Deliver</b> (2): fill a contract with goods that can travel there. Big rewards in marks and glory.</li>
       <li><b>Trade</b> (1): sell goods at a port. Each sale lowers the price.</li>
-      <li><b>Bond</b> (1): take £20, lose 3 income forever and 5 VP at the end.</li>
-      <li><b>Wait</b>: skip ahead of the next lord and collect up to £2.</li>
+      <li><b>Bond</b> (1): take 20 marks, lose 3 income forever and 5 glory at the end.</li>
+      <li><b>Wait</b>: skip ahead of the next lord and collect up to 2 marks.</li>
     </ul>
     <h4>MARKET TICKS (6 · 12 · 18)</h4>
-    <p>The first lord past each mark triggers an event, prices drift back to normal, contracts grow richer by £2 and the oldest one is lost. Each lord collects income as they pass a mark.</p>
+    <p>The first lord past each mark triggers an event, prices drift back to normal, contracts grow richer by 2 marks and the oldest one is lost. Each lord collects income as they pass a mark.</p>
     <h4>SCORING</h4>
-    <p>At each Age end, buildings score VP, and links score 1 VP if both ends hold buildings. At the end, every £4 is 1 VP, and three Patron goals pay 8 and 4 VP.</p>
+    <p>At each Age end, buildings earn glory, and links earn 1 glory if both ends hold buildings. At the end, every 4 marks become 1 glory, and three Patron goals pay 8 and 4 glory.</p>
     <h4>CONTROLS</h4>
     <p>Keys 1–7 pick actions, Esc cancels, V switches between your throne view and the war map. Drag to look around, scroll to zoom.</p>
     <div style="text-align:center;margin-top:14px"><button class="btn primary" id="help-x">TO BATTLE</button></div>
@@ -387,6 +388,9 @@ async function present(next: GameState): Promise<void> {
   state = next
   const local = actor ? localIds.has(actor.id) : false
   sfxFor(next)
+  if (actor && !localIds.has(actor.id)) {
+    for (const l of next.log) if (l.seq > prev.logSeq && l.who === actor.id) feedCard(actor.name, actor.color, l.text)
+  }
   if (hostNet) hostNet.broadcastState(next)
   await table.play(next.fx, next, !local)
   table.sync(next)
@@ -441,7 +445,7 @@ function setPending(t: ActType | null): void {
   }
   table.setSelectable(sel)
   if (t === 'trade') tradePicker()
-  if (t === 'bond') picker([{ label: `Take £${V.BOND_AMOUNT}`, sub: `Income −${V.BOND_INCOME} for good, −${V.BOND_END_VP} VP at the end`, act: { type: 'bond' } }])
+  if (t === 'bond') picker([{ label: `Take ${coin(V.BOND_AMOUNT)}`, sub: `Income −${V.BOND_INCOME} for good, −${V.BOND_END_VP} glory at the end`, act: { type: 'bond' } }])
   if (t === 'wait') void commit({ type: 'wait' })
   render()
 }
@@ -467,7 +471,7 @@ function tradePicker(): void {
     let earn = 0
     let idx = s.priceIdx[a.good]
     for (let i = 0; i < a.qty; i++) { earn += V.PRICES[a.good][idx]; idx = Math.max(0, idx - 1) }
-    return { label: `Sell ${a.qty} ${GOOD_NAME[a.good]}`, sub: `about £${earn} before tolls`, act: a as Action }
+    return { label: `Sell ${a.qty} ${GOOD_NAME[a.good]}`, sub: `about ${coin(earn)} before tolls`, act: a as Action }
   })
   if (opts.length) picker(opts)
   else toast('Nothing to sell', 'You need goods in a building that can reach a port.')
@@ -487,7 +491,7 @@ table.onPick = (p: Pick) => {
       const what = a.kind === 'mine' ? `${GOOD_NAME[V.TOWN_BY_ID.get(a.town)!.deposit!]} Mine` : KIND_NAME[a.kind]
       return {
         label: `${existing ? 'Upgrade to ' : ''}${what} ${V.roman(a.level)}`,
-        sub: `£${cost} · ${spec.vp[a.level - 1]} VP per Age · +${spec.income[a.level - 1]} income`,
+        sub: `${coin(cost)} · ${glory(spec.vp[a.level - 1])} per Age · +${spec.income[a.level - 1]} income`,
         act: a,
       }
     }))
@@ -498,7 +502,7 @@ table.onPick = (p: Pick) => {
     const ids = new Set(legal.filter((a): a is Extract<Action, { type: 'deliver' }> => a.type === 'deliver').map((a) => a.contract))
     const here = state.contracts.filter((c) => c.town === p.id && ids.has(c.id))
     if (here.length === 1) return void commit({ type: 'deliver', contract: here[0].id })
-    picker(here.map((c) => ({ label: `Deliver ${V.goodsLabel(c.wants)}`, sub: `£${c.money} + ${c.vp} VP`, act: { type: 'deliver', contract: c.id } as Action })))
+    picker(here.map((c) => ({ label: `Deliver ${V.goodsLabel(c.wants)}`, sub: `${coin(c.money)} ${glory(c.vp)}`, act: { type: 'deliver', contract: c.id } as Action })))
   }
 }
 
@@ -511,12 +515,50 @@ table.onHover = (p) => {
   tip.innerHTML = hoverText(p)
 }
 
+/** The exact action a click on `p` would commit, if it is a single one. */
+function actionFor(p: Pick): Action | null {
+  if (!pending) return null
+  const find = (f: (a: Action) => boolean) => legal.find(f) ?? null
+  if (pending === 'route' && p.kind === 'link') return find((a) => a.type === 'route' && a.link === p.id)
+  if (pending === 'run' && p.kind !== 'town' && p.kind !== 'link') return find((a) => a.type === 'run' && a.town === p.town && a.slot === p.slot)
+  if (pending === 'deliver' && p.kind === 'town') {
+    const here = legal.filter((a) => a.type === 'deliver' && state!.contracts.find((c) => c.id === a.contract)?.town === p.id)
+    return here.length === 1 ? here[0] : null
+  }
+  return null
+}
+
+/** Simulate an action and show what it will cost and earn. */
+function previewHtml(a: Action): string {
+  const s = state!
+  const cur = V.currentPlayer(s)!
+  let after: GameState
+  try { after = V.apply(s, cur.id, a) } catch { return '' }
+  const me = after.players.find((x) => x.id === cur.id)!
+  const dm = me.money - cur.money
+  const dv = me.vp - cur.vp
+  const made = after.fx.filter((f): f is Extract<V.Fx, { kind: 'produce' }> => f.kind === 'produce').map((f) => `+${f.n} ${GOOD_NAME[f.good]}`)
+  const tolls = after.fx.filter((f) => f.kind === 'pay' && f.from === cur.id).length
+  return `<div class="pv">
+    <span class="${dm < 0 ? 'neg' : 'pos'}">${dm >= 0 ? '+' : ''}${coin(dm)}</span>
+    ${dv ? `<span class="pos">+${glory(dv)}</span>` : ''}
+    ${made.length ? `<span>${made.join(', ')}</span>` : ''}
+    <span class="amt">${ICON.time}${me.time - cur.time}</span>
+    ${tolls ? '<span class="neg">pays rivals</span>' : ''}
+  </div>`
+}
+
 function hoverText(p: Pick): string {
+  const a = actionFor(p)
+  return baseHover(p) + (a ? previewHtml(a) : '')
+}
+
+function baseHover(p: Pick): string {
   const s = state!
   if (p.kind === 'link') {
     const l = V.LINK_BY_ID.get(p.id)!
     const c = V.linkCost(s, p.id)
-    return `<b>${l.kind === 'river' ? 'River link' : 'Road'}</b> ${townName(l.a)} – ${townName(l.b)}<br/>£${c.money}${c.coal ? ' + 1 coal' : ''} · 2 time`
+    return `<b>${l.kind === 'river' ? 'River link' : 'Road'}</b> ${townName(l.a)} – ${townName(l.b)}<br/>${coin(c.money)}${c.coal ? ' + 1 coal' : ''} · 2 time`
   }
   const town = p.kind === 'town' ? p.id : p.town
   const t = V.TOWN_BY_ID.get(town)!
@@ -530,7 +572,7 @@ function hoverText(p: Pick): string {
     return `<b>Empty plot</b> in ${t.name}${t.deposit ? ` · ${GOOD_NAME[t.deposit]} deposit` : ''}`
   }
   const cs = s.contracts.filter((c) => c.town === town)
-  return `<b>${t.name}</b>${t.port ? ' · port' : ''}${t.deposit ? ` · ${GOOD_NAME[t.deposit]} deposit` : ''}${cs.map((c) => `<br/>📜 ${V.goodsLabel(c.wants)} → £${c.money} + ${c.vp} VP`).join('')}`
+  return `<b>${t.name}</b>${t.port ? ' · port' : ''}${t.deposit ? ` · ${GOOD_NAME[t.deposit]} deposit` : ''}${cs.map((c) => `<br/>Contract: ${V.goodsLabel(c.wants)} → ${coin(c.money)} ${glory(c.vp)}`).join('')}`
 }
 
 window.addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY } })
@@ -566,59 +608,59 @@ function render(): void {
     <div id="players">${s.players.map((p) => `
       <div class="plate panel ${cur?.id === p.id ? 'turn' : ''}" style="--pc:${p.color}">
         <div class="nm"><span>${esc(p.name)}</span><span class="tag">${p.isAI ? 'AI' : localIds.has(p.id) ? 'YOU' : 'LORD'}</span></div>
-        <div class="st"><span>£<b>${p.money}</b></span><span><b>${p.vp}</b> VP</span><span>⏳<b>${p.time}</b></span>${p.bonds ? `<span>bonds ${p.bonds}</span>` : ''}</div>
+        <div class="st"><b>${coin(p.money)}</b><b>${glory(p.vp)}</b><span class="amt">${ICON.time}${p.time}</span>${p.bonds ? `<span>bonds ${p.bonds}</span>` : ''}</div>
       </div>`).join('')}</div>
 
     <div id="track" class="panel">
-      <div class="hd"><span>AGE ${V.roman(s.age)} · ${AGE_NAME[s.age - 1].toUpperCase().replace('THE ', '')}</span><span>${cur ? `${esc(cur.name)} commands` : ''}</span></div>
+      <div class="hd"><span>AGE ${V.roman(s.age)} · ${AGE_NAME[s.age - 1].toUpperCase().replace('THE ', '')}</span><span>${cur ? (localIds.has(cur.id) ? 'Your command' : `${esc(cur.name)} commands`) : ''}</span></div>
       <div class="bar">
-        ${V.TICKS.map((t) => `<div class="tick" style="left:calc(${(t / V.AGE_LENGTH) * 100}% - 2px)"><span>${s.ticksDone.includes(t) ? '✓' : '⚑'} ${t}</span></div>`).join('')}
+        ${V.TICKS.map((t) => `<div class="tick" style="left:calc(${(t / V.AGE_LENGTH) * 100}% - 2px)"><span>${s.ticksDone.includes(t) ? ICON.check : ICON.flag}${t}</span></div>`).join('')}
         ${s.players.map((p, i) => `<div class="tok ${cur?.id === p.id ? 'turn' : ''}" title="${esc(p.name)}" style="--pc:${p.color};left:${(p.time / V.AGE_LENGTH) * 100}%;top:${3 + (s.players.filter((q, j) => j < i && q.time === p.time).length) * -7}px"></div>`).join('')}
       </div>
     </div>
 
     <div id="topright">
-      <button class="btn" id="b-view">${table.view === 'pov' ? '🗺 WAR MAP' : '👑 THRONE'}</button>
-      <button class="btn" id="b-music">${music.enabled ? '♫ ON' : '♫ OFF'}</button>
-      <button class="btn" id="b-help">?</button>
-      <button class="btn" id="b-quit">⟲</button>
+      <button class="btn" id="b-view" title="Switch view (V)">${table.view === 'pov' ? ICON.map + ' WAR MAP' : ICON.throne + ' THRONE'}</button>
+      <button class="btn icon" id="b-music" title="Music">${music.enabled ? ICON.music : ICON.mute}</button>
+      <button class="btn icon" id="b-help" title="How to play">${ICON.help}</button>
+      <button class="btn icon" id="b-quit" title="Leave">${ICON.leave}</button>
     </div>
 
     <div id="market" class="panel">
       <h3>EXCHANGE</h3>
-      ${V.GOODS.map((g) => `<div class="price"><span class="dot g-${g}"></span><span>${GOOD_NAME[g]}</span><b>£${V.price(s, g)}</b><span class="ladder">${V.PRICES[g].map((_, i) => `<i class="${i <= s.priceIdx[g] ? 'on' : ''}"></i>`).join('')}</span></div>`).join('')}
-      <div id="event">${s.event ? `<b>${esc(s.event.title.toUpperCase())}</b>${esc(s.event.text)}` : '<b>NO EVENT YET</b>The first market tick comes at 6.'}</div>
+      ${V.GOODS.map((g) => `<div class="price"><span class="dot g-${g}"></span><span>${GOOD_NAME[g]}</span><b>${coin(V.price(s, g))}</b><span class="ladder">${V.PRICES[g].map((_, i) => `<i class="${i <= s.priceIdx[g] ? 'on' : ''}"></i>`).join('')}</span></div>`).join('')}
+      <div id="event">${s.event ? `<b>${esc(s.event.title.toUpperCase())}</b>${iconize(esc(s.event.text))}` : '<b>NO EVENT YET</b>The first market tick comes at 6.'}</div>
     </div>
 
     <div id="contracts" class="panel">
       <h3>CONTRACTS</h3>
       ${s.contracts.map((c) => `
         <div class="ct ${ready.has(c.id) ? 'ready' : ''}" data-town="${c.town}">
-          <div class="to">${V.TOWN_BY_ID.get(c.town)!.port ? '⚓ ' : ''}${townName(c.town)}</div>
+          <div class="to">${V.TOWN_BY_ID.get(c.town)!.port ? ICON.anchor : ''}${townName(c.town)}</div>
           <div class="wants">${wantsHtml(c.wants)}</div>
-          <div class="rw"><span><b>£${c.money}</b> · <b>${c.vp}</b> VP</span>${ready.has(c.id) ? `<button class="btn primary go" data-c="${c.id}">DELIVER</button>` : ''}</div>
+          <div class="seal" title="${c.vp} glory">${c.vp}</div><div class="rw"><span><b>${coin(c.money)}</b></span>${ready.has(c.id) ? `<button class="btn primary go" data-c="${c.id}">DELIVER</button>` : ''}</div>
         </div>`).join('') || '<p class="note">No contracts left this Age.</p>'}
     </div>
 
     <div id="me" class="panel" style="border-left:5px solid ${me.color}">
       <h3>${esc(me.name.toUpperCase())}'S HOLDINGS</h3>
-      <div class="row"><span>Income each tick</span><b>£${V.income(s, me.id)}</b></div>
-      <div class="row"><span>Stock</span><span>⛏ ${me.stock.mine} · 🔥 ${me.stock.smelter} · ⚔ ${me.stock.works}</span></div>
+      <div class="row"><span>Income each tick</span><b>${coin(V.income(s, me.id))}</b></div>
+      <div class="row"><span>Stock</span><span class="stock"><span class="amt" title="Mines">${ICON.mine}${me.stock.mine}</span><span class="amt" title="Smelters">${ICON.smelter}${me.stock.smelter}</span><span class="amt" title="Forges">${ICON.forge}${me.stock.works}</span></span></div>
       <div class="row"><span>Goods</span><span>${heldHtml(s, me.id) || '<span class="goal">none</span>'}</span></div>
-      <h3 style="margin-top:6px">PATRONS (8 / 4 VP)</h3>
+      <h3 style="margin-top:6px">PATRONS · 8 / 4 GLORY</h3>
       ${s.goals.map((g) => { const d = V.GOALS.find((x) => x.id === g)!; return `<div class="goal"><b>${d.title}</b> · ${d.text} <span style="color:var(--ink)">(${V.goalMetric(s, g, me.id)})</span></div>` }).join('')}
     </div>
 
     <div id="actions" class="panel">
       ${ACTS.map((a) => `<button class="btn act ${pending === a.type ? 'on' : ''}" data-a="${a.type}" ${myTurn() && can(a.type) ? '' : 'disabled'} title="Key ${a.key}">
-        <span class="ic">${a.icon}</span><span class="lb">${a.label.toUpperCase()}</span>
-        <span class="tm">${a.type === 'wait' ? `+£${waitGain}` : `${V.ACTION_TIME[a.type as Exclude<ActType, 'wait'>]} time`}</span></button>`).join('')}
+        <span class="ic">${ICON[a.type]}</span><span class="lb">${a.label.toUpperCase()}</span>
+        <span class="tm">${a.type === 'wait' ? `+${coin(waitGain)}` : `<span class="amt">${ICON.time}${V.ACTION_TIME[a.type as Exclude<ActType, 'wait'>]}</span>`}</span></button>`).join('')}
     </div>
 
     ${pending && promptText[pending] ? `<div id="prompt" class="panel">${promptText[pending]} <button class="btn" id="p-x">CANCEL</button></div>` : ''}
     ${cur && !localIds.has(cur.id) ? `<div id="prompt" class="panel">${esc(cur.name)} ${cur.isAI ? 'is plotting…' : 'is deciding…'}</div>` : ''}
 
-    <div id="log" class="panel">${s.log.slice(-5).map((l) => `<div>${esc(l.text)}</div>`).join('')}</div>
+    <div id="log" class="panel">${s.log.slice(-5).map((l) => `<div>${iconize(esc(l.text))}</div>`).join('')}</div>
     <div id="tip" class="panel hidden"></div>`
   hud.querySelectorAll<HTMLButtonElement>('.act').forEach((b) => {
     b.onclick = () => { sfx.click(0, 0, 0); const t = b.dataset.a as ActType; setPending(pending === t ? null : t) }
@@ -642,6 +684,27 @@ function heldHtml(s: GameState, pid: string): string {
   const held: V.Goods = {}
   for (const o of V.buildingsOf(s, pid)) for (const g of V.GOODS) held[g] = (held[g] ?? 0) + (o.b.goods[g] ?? 0)
   return V.GOODS.filter((g) => held[g]).map((g) => `<span class="chip"><span class="dot g-${g}"></span>${held[g]}</span>`).join(' ')
+}
+
+function feedCard(name: string, color: string, text: string): void {
+  let feed = document.getElementById('feed')
+  if (!feed) {
+    feed = document.createElement('div')
+    feed.id = 'feed'
+    document.body.appendChild(feed)
+  }
+  const card = document.createElement('div')
+  card.className = 'feedcard'
+  card.style.setProperty('--pc', color)
+  // Strip the actor's name from the start: the card header already shows it.
+  const body = text.startsWith(name) ? text.slice(name.length).trim() : text
+  card.innerHTML = `<b>${esc(name)}</b><span>${iconize(esc(body))}</span>`
+  feed.prepend(card)
+  while (feed.children.length > 3) feed.lastElementChild!.remove()
+  setTimeout(() => {
+    card.classList.add('out')
+    setTimeout(() => card.remove(), 400)
+  }, 3600)
 }
 
 let bannerTimer = 0
@@ -674,7 +737,7 @@ function results(): void {
     <table>
       <tr><td></td>${f.map((r) => `<td><b>${esc(r.name)}</b></td>`).join('')}</tr>
       ${labels.map((l) => `<tr><td>${esc(l)}</td>${f.map((r) => `<td>${r.breakdown.find((b) => b.label === l)?.vp ?? '·'}</td>`).join('')}</tr>`).join('')}
-      <tr class="w"><td><b>Total VP</b></td>${f.map((r) => `<td><b>${r.vp}</b></td>`).join('')}</tr>
+      <tr class="w"><td><b>Total glory</b></td>${f.map((r) => `<td><b>${r.vp}</b></td>`).join('')}</tr>
     </table>
     <button class="btn primary" id="r-again">PLAY AGAIN</button>
   </div>`
@@ -684,3 +747,6 @@ function results(): void {
 
 mainMenu()
 table.setView('overview', null, 0.01)
+
+// Dev-only handle for browser tests.
+if (import.meta.env.DEV) Object.assign(window, { __valley: { table, get state() { return state } } })

@@ -74,21 +74,114 @@ export function heightAt(x: number, z: number): number {
   return h * smooth(0, 1.2, edge)
 }
 
+// --------------------------------------------------------------- lanterns
+// The valley lies in darkness; it is lit only around towns, works and
+// routes, like candles on a war table. Every board material shares these.
+
+const MAX_LAMPS = 64
+const LAMPS = {
+  uLamps: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector4()) },
+  uLampCount: { value: 0 },
+  uDark: { value: 0.3 },
+  uTime: { value: 0 },
+}
+
+function lanternize(m: THREE.Material): void {
+  const sm = m as THREE.MeshStandardMaterial
+  if (!sm.isMeshStandardMaterial || sm.userData.lantern) return
+  if (sm.emissiveIntensity > 1.2) return // flames and windows stay bright
+  sm.userData.lantern = true
+  sm.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, LAMPS)
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vLampW;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 lw = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          lw = instanceMatrix * lw;
+        #endif
+        vLampW = (modelMatrix * lw).xyz;`)
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vLampW;
+        uniform vec4 uLamps[${MAX_LAMPS}];
+        uniform int uLampCount;
+        uniform float uDark;
+        uniform float uTime;`)
+      .replace('#include <opaque_fragment>', `
+        float rev = 0.0;
+        vec3 warm = vec3(0.0);
+        for (int i = 0; i < ${MAX_LAMPS}; i++) {
+          if (i >= uLampCount) break;
+          vec4 l = uLamps[i];
+          float f = smoothstep(l.w, l.w * 0.12, distance(vLampW.xz, l.xy)) * l.z;
+          float fl = 0.93 + 0.07 * sin(uTime * 7.3 + float(i) * 2.1) + 0.03 * sin(uTime * 19.1 + float(i));
+          rev += f;
+          warm += f * fl * vec3(1.0, 0.66, 0.34);
+        }
+        rev = clamp(rev, 0.0, 1.0);
+        outgoingLight = outgoingLight * mix(uDark, 1.1, rev) + diffuseColor.rgb * min(warm, vec3(1.4)) * 0.5;
+        #include <opaque_fragment>`)
+  }
+  sm.customProgramCacheKey = () => 'lantern'
+}
+
+function lanternizeTree(o: THREE.Object3D): void {
+  o.traverse((c) => {
+    const mm = (c as THREE.Mesh).material
+    if (!mm) return
+    for (const m of Array.isArray(mm) ? mm : [mm]) lanternize(m)
+  })
+}
+
 // --------------------------------------------------------------- helpers
 
 function mat(color: number, opts: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...opts })
 }
 
-function textSprite(text: string, opts: { size?: number; color?: string; bg?: string; bold?: boolean } = {}): THREE.Sprite {
+type Glyph = 'mark' | 'glory'
+
+/** The mark: a minted coin with a diamond seal. Drawn, never typed. */
+function drawGlyph(ctx: CanvasRenderingContext2D, g: Glyph, x: number, y: number, r: number): void {
+  ctx.save()
+  ctx.lineWidth = r * 0.16
+  ctx.strokeStyle = 'rgba(10,8,5,.9)'
+  if (g === 'mark') {
+    const grd = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r)
+    grd.addColorStop(0, '#fff0b8')
+    grd.addColorStop(0.55, '#e0ae4a')
+    grd.addColorStop(1, '#8a5f1e')
+    ctx.fillStyle = grd
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    ctx.strokeStyle = 'rgba(90,60,20,.9)'
+    ctx.lineWidth = r * 0.1
+    ctx.beginPath(); ctx.arc(x, y, r * 0.68, 0, Math.PI * 2); ctx.stroke()
+    ctx.fillStyle = '#7a4f14'
+    ctx.beginPath(); ctx.moveTo(x, y - r * 0.42); ctx.lineTo(x + r * 0.32, y); ctx.lineTo(x, y + r * 0.42); ctx.lineTo(x - r * 0.32, y); ctx.closePath(); ctx.fill()
+  } else {
+    ctx.fillStyle = '#f3d98d'
+    ctx.beginPath()
+    ctx.moveTo(x - r, y - r * 0.35); ctx.lineTo(x - r * 0.5, y + r * 0.05); ctx.lineTo(x, y - r * 0.8)
+    ctx.lineTo(x + r * 0.5, y + r * 0.05); ctx.lineTo(x + r, y - r * 0.35); ctx.lineTo(x + r * 0.75, y + r * 0.75)
+    ctx.lineTo(x - r * 0.75, y + r * 0.75); ctx.closePath(); ctx.stroke(); ctx.fill()
+    ctx.fillStyle = '#b83a2e'
+    ctx.beginPath(); ctx.arc(x, y + r * 0.3, r * 0.17, 0, Math.PI * 2); ctx.fill()
+  }
+  ctx.restore()
+}
+
+function textSprite(text: string, opts: { size?: number; color?: string; bg?: string; bold?: boolean; glyph?: Glyph } = {}): THREE.Sprite {
   const size = opts.size ?? 44
   const c = document.createElement('canvas')
   const ctx = c.getContext('2d')!
-  ctx.font = `${opts.bold ? 'bold ' : ''}${size}px "Cinzel", Georgia, serif`
-  const w = Math.ceil(ctx.measureText(text).width) + size
+  const font = `${opts.bold ? 'bold ' : ''}${size}px "Cinzel", Georgia, serif`
+  ctx.font = font
+  const gw = opts.glyph ? size * 1.1 : 0
+  const w = Math.ceil(ctx.measureText(text).width) + size + gw
   c.width = w
   c.height = Math.ceil(size * 1.6)
-  ctx.font = `${opts.bold ? 'bold ' : ''}${size}px "Cinzel", Georgia, serif`
+  ctx.font = font
   if (opts.bg) {
     ctx.fillStyle = opts.bg
     const r = c.height / 2
@@ -96,13 +189,15 @@ function textSprite(text: string, opts: { size?: number; color?: string; bg?: st
     ctx.roundRect(2, 2, w - 4, c.height - 4, r)
     ctx.fill()
   }
+  if (opts.glyph) drawGlyph(ctx, opts.glyph, size * 0.5 + gw * 0.45, c.height / 2, size * 0.42)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.lineWidth = size / 6
   ctx.strokeStyle = 'rgba(10,8,5,.85)'
-  ctx.strokeText(text, w / 2, c.height / 2)
+  const tx = (w + gw) / 2
+  ctx.strokeText(text, tx, c.height / 2)
   ctx.fillStyle = opts.color ?? '#f1e2bc'
-  ctx.fillText(text, w / 2, c.height / 2)
+  ctx.fillText(text, tx, c.height / 2)
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
@@ -185,17 +280,21 @@ export class WarTable {
   private seatAngle = new Map<string, number>()
   private shake = 0
   view: 'pov' | 'overview' = 'pov'
+  private lastState: GameState | null = null
+  private barges: THREE.Object3D[] = []
+  private spinners: THREE.Object3D[] = []
+  private bobbers: THREE.Object3D[] = []
   onPick: (p: Pick) => void = () => {}
   onHover: (p: Pick | null) => void = () => {}
 
   constructor(host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.setSize(host.clientWidth, host.clientHeight)
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.05
+    this.renderer.toneMappingExposure = 1.0
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     host.appendChild(this.renderer.domElement)
 
@@ -211,7 +310,7 @@ export class WarTable {
 
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(host.clientWidth, host.clientHeight), 0.55, 0.6, 0.82))
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(host.clientWidth, host.clientHeight), 0.5, 0.55, 0.72))
     this.composer.addPass(new OutputPass())
 
     this.smokeTex = this.makeSmokeTexture()
@@ -246,31 +345,36 @@ export class WarTable {
 
   private buildWorld(): void {
     const s = this.scene
-    s.background = new THREE.Color(0x0d0b10)
-    s.fog = new THREE.Fog(0x0d0b10, 38, 90)
+    s.background = new THREE.Color(0x060508)
+    s.fog = new THREE.Fog(0x060508, 30, 78)
 
-    const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x2a1d10, 0.75)
-    s.add(hemi)
-    const sun = new THREE.DirectionalLight(0xffe2b0, 2.4)
-    sun.position.set(-14, 22, 10)
-    sun.castShadow = true
-    sun.shadow.mapSize.set(4096, 4096)
-    const sc = sun.shadow.camera
-    sc.left = -22; sc.right = 22; sc.top = 22; sc.bottom = -22; sc.near = 1; sc.far = 70
-    sun.shadow.bias = -0.0004
-    sun.shadow.normalBias = 0.02
-    s.add(sun)
-    const rim = new THREE.DirectionalLight(0x7a9cff, 0.5)
-    rim.position.set(16, 10, -18)
-    s.add(rim)
+    // Moonlight gives shape; candles and torches give warmth.
+    s.add(new THREE.HemisphereLight(0x2c3650, 0x0a0705, 0.38))
+    const moon = new THREE.DirectionalLight(0x9db4e6, 0.62)
+    moon.position.set(12, 24, -14)
+    moon.castShadow = true
+    moon.shadow.mapSize.set(2048, 2048)
+    const sc = moon.shadow.camera
+    sc.left = -20; sc.right = 20; sc.top = 20; sc.bottom = -20; sc.near = 1; sc.far = 70
+    moon.shadow.bias = -0.0005
+    moon.shadow.normalBias = 0.03
+    s.add(moon)
+    const warmKey = new THREE.DirectionalLight(0xffc88a, 0.35)
+    warmKey.position.set(-10, 14, 16)
+    s.add(warmKey)
+    for (const [x, z] of [[-BOARD_W / 2 - 3, BOARD_D / 2 + 1], [BOARD_W / 2 + 3, -BOARD_D / 2 - 1]]) {
+      const brazier = this.makeBrazier()
+      brazier.position.set(x, -0.45, z)
+      s.add(brazier)
+    }
 
     // Great hall floor and the table the valley sits on.
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(90, 64), mat(0x16110c, { roughness: 0.95 }))
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(90, 64), mat(0x0f0b08, { roughness: 0.95 }))
     floor.rotation.x = -Math.PI / 2
     floor.position.y = -2.2
     floor.receiveShadow = true
     s.add(floor)
-    const table = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 3.2, 1.6, BOARD_D + 3.2), mat(0x3b2415, { roughness: 0.6 }))
+    const table = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 3.2, 1.6, BOARD_D + 3.2), mat(0x2a190e, { roughness: 0.55 }))
     table.position.y = -1.25
     table.receiveShadow = true
     table.castShadow = true
@@ -284,6 +388,92 @@ export class WarTable {
     this.buildForest()
     this.buildTowns()
     this.buildLinks()
+    this.buildAtmosphere()
+    // Everything on the board answers to the lanterns.
+    for (const o of this.scene.children) if (o !== this.fxLayer && o.userData.offBoard !== true) lanternizeTree(o)
+  }
+
+  private makeBrazier(): THREE.Group {
+    const g = new THREE.Group()
+    g.userData.offBoard = true
+    const iron = mat(0x1d1b1a, { metalness: 0.8, roughness: 0.4 })
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.25, 2.2, 8), iron)
+    leg.position.y = 1.1
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.35, 0.45, 12, 1, true), iron)
+    bowl.position.y = 2.35
+    const coals = new THREE.Mesh(new THREE.CircleGeometry(0.62, 16), new THREE.MeshStandardMaterial({ color: 0xff8a30, emissive: 0xff5a10, emissiveIntensity: 3 }))
+    coals.rotation.x = -Math.PI / 2
+    coals.position.y = 2.5
+    const light = new THREE.PointLight(0xff9a4a, 60, 34, 1.7)
+    light.position.y = 3.2
+    this.torches.push(light)
+    g.add(leg, bowl, coals, light)
+    return g
+  }
+
+  private embers!: THREE.Points
+  private mist: THREE.Mesh[] = []
+
+  private buildAtmosphere(): void {
+    // Drifting embers and fireflies over the valley.
+    const n = 320
+    const pos = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * BOARD_W
+      pos[i * 3 + 1] = 0.3 + Math.random() * 3
+      pos[i * 3 + 2] = (Math.random() - 0.5) * BOARD_D
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    this.embers = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xffb060, size: 0.07, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false,
+    }))
+    this.embers.userData.offBoard = true
+    this.scene.add(this.embers)
+    // Low mist banks that crawl across the valley.
+    const c = document.createElement('canvas')
+    c.width = c.height = 256
+    const g = c.getContext('2d')!
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 256, y = Math.random() * 256, r = 30 + Math.random() * 70
+      const grd = g.createRadialGradient(x, y, 0, x, y, r)
+      grd.addColorStop(0, 'rgba(170,180,200,.22)')
+      grd.addColorStop(1, 'rgba(170,180,200,0)')
+      g.fillStyle = grd
+      g.fillRect(0, 0, 256, 256)
+    }
+    const tex = new THREE.CanvasTexture(c)
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+    for (let i = 0; i < 2; i++) {
+      const map = tex.clone()
+      map.repeat.set(1.5 + i, 1.5 + i)
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(BOARD_W * 1.3, BOARD_D * 1.3), new THREE.MeshBasicMaterial({
+        map, transparent: true, opacity: 0.13, depthWrite: false, color: 0x56607a,
+      }))
+      m.rotation.x = -Math.PI / 2
+      m.position.y = 0.45 + i * 0.5
+      m.userData.offBoard = true
+      this.mist.push(m)
+      this.scene.add(m)
+    }
+  }
+
+  /** Recompute which parts of the valley are lit. */
+  private relight(s: GameState | null): void {
+    const lamps = LAMPS.uLamps.value
+    let n = 0
+    const add = (x: number, z: number, i: number, r: number) => { if (n < MAX_LAMPS) lamps[n++].set(x, z, i, r) }
+    for (const t of TOWNS) {
+      const built = s ? s.plots[t.id].filter(Boolean).length : 0
+      const sel = this.selectable.towns.has(t.id) || [...this.selectable.plots].some((k) => k.startsWith(t.id + ':'))
+      add(t.x, t.z, Math.min(1, (t.port ? 0.6 : 0.42) + built * 0.25 + (sel ? 0.45 : 0)), 2.3 + built * 0.45 + (sel ? 0.7 : 0))
+    }
+    if (s) for (const l of LINKS) {
+      if (!s.links[l.id] && !this.selectable.links.has(l.id)) continue
+      const a = TOWN_BY_ID.get(l.a)!, b = TOWN_BY_ID.get(l.b)!
+      add((a.x + b.x) / 2, (a.z + b.z) / 2, this.selectable.links.has(l.id) ? 0.55 : 0.35, Math.hypot(a.x - b.x, a.z - b.z) * 0.55)
+    }
+    LAMPS.uLampCount.value = n
   }
 
   private buildTerrain(): void {
@@ -293,9 +483,9 @@ export class WarTable {
     const pos = geo.attributes.position as THREE.BufferAttribute
     const colors = new Float32Array(pos.count * 3)
     const c = new THREE.Color()
-    const sand = new THREE.Color(0xb59f6e), grass = new THREE.Color(0x587a35), grass2 = new THREE.Color(0x7c9440)
-    const forest = new THREE.Color(0x34502a), rock = new THREE.Color(0x76706a), snow = new THREE.Color(0xe9eef2)
-    const mud = new THREE.Color(0x4b3b26)
+    const sand = new THREE.Color(0x8e7b57), grass = new THREE.Color(0x40592c), grass2 = new THREE.Color(0x5a6c34)
+    const forest = new THREE.Color(0x283b20), rock = new THREE.Color(0x5e5852), snow = new THREE.Color(0xc4cad1)
+    const mud = new THREE.Color(0x2e2419)
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i)
       const h = heightAt(x, z)
@@ -320,8 +510,8 @@ export class WarTable {
     const geo = new THREE.PlaneGeometry(BOARD_W, BOARD_D, 1, 1)
     geo.rotateX(-Math.PI / 2)
     const m = new THREE.MeshStandardMaterial({
-      color: 0x24617a, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.86,
-      emissive: 0x0a2a3a, emissiveIntensity: 0.6,
+      color: 0x15394a, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.9,
+      emissive: 0x06151d, emissiveIntensity: 0.6,
     })
     this.water = new THREE.Mesh(geo, m)
     this.water.position.y = WATER_Y
@@ -358,11 +548,11 @@ export class WarTable {
       if (h > 0.7 || hash(i, 4.4) > 0.45) {
         if (np >= 1400) continue
         pine.setMatrixAt(np, m4)
-        pine.setColorAt(np++, col.setHSL(0.3 + hash(i, 6) * 0.06, 0.45, 0.17 + hash(i, 8) * 0.08))
+        pine.setColorAt(np++, col.setHSL(0.3 + hash(i, 6) * 0.06, 0.35, 0.13 + hash(i, 8) * 0.06))
       } else {
         if (no >= 700) continue
         oak.setMatrixAt(no, m4)
-        oak.setColorAt(no++, col.setHSL(0.22 + hash(i, 6) * 0.08, 0.5, 0.25 + hash(i, 8) * 0.1))
+        oak.setColorAt(no++, col.setHSL(0.2 + hash(i, 6) * 0.08, 0.35, 0.18 + hash(i, 8) * 0.07))
       }
     }
     pine.count = np
@@ -396,12 +586,13 @@ export class WarTable {
       }
       // Town square and plot pads.
       const center = townPos(t.id)
-      const square = new THREE.Mesh(new THREE.CylinderGeometry(t.port ? 0.7 : 0.95, 1.05, 0.08, 28), mat(0x7d7462, { roughness: 0.95 }))
+      const square = new THREE.Mesh(new THREE.CylinderGeometry(t.port ? 0.55 : 0.82, 0.9, 0.05, 28), mat(0x5c574e, { roughness: 0.95 }))
       square.position.copy(center).setY(center.y + 0.02)
       square.receiveShadow = true
       this.scene.add(square)
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.035, 8, 48), mat(0xd7b65f, { emissive: 0xd7b65f, emissiveIntensity: 0, transparent: true, opacity: 0 }))
       ring.rotation.x = Math.PI / 2
+      ring.userData.offBoard = true
       ring.position.copy(center).setY(center.y + 0.1)
       this.scene.add(ring)
       this.townRings.set(t.id, ring)
@@ -416,6 +607,7 @@ export class WarTable {
         pad.position.copy(pp).setY(pp.y + 0.07)
         pad.receiveShadow = true
         pad.userData.pick = { kind: 'plot', town: t.id, slot: sl } satisfies Pick
+        pad.userData.offBoard = true
         this.scene.add(pad)
         this.hits.push(pad)
         this.plotPads.set(`${t.id}:${sl}`, pad)
@@ -433,6 +625,18 @@ export class WarTable {
     }
     walls.count = n
     roofs.count = n
+    // Lit windows: most homes keep a candle burning.
+    const win = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.06, 0.01), new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 2.6 }), n)
+    let nw = 0
+    const shift = new THREE.Matrix4().makeTranslation(0, 0.09, 0.091)
+    for (let i = 0; i < n; i++) {
+      if (hash(i, 31) < 0.25) continue
+      walls.getMatrixAt(i, m4)
+      win.setMatrixAt(nw++, m4.clone().multiply(shift))
+    }
+    win.count = nw
+    win.userData.offBoard = true
+    this.scene.add(win)
     for (const im of [walls, roofs]) { im.castShadow = true; im.receiveShadow = true; this.scene.add(im) }
   }
 
@@ -452,6 +656,7 @@ export class WarTable {
       ship.position.set(-0.5 + i * 0.9, -WATER_Y * 0 - 0.02, 1.3 + i * 0.25)
       ship.rotation.y = 0.4 + i
       ship.userData.bob = i
+      this.bobbers.push(ship)
       g.add(ship)
     }
     g.position.set(c.x, WATER_Y, c.z)
@@ -484,13 +689,14 @@ export class WarTable {
         color: l.kind === 'river' ? 0x8fd0ff : 0xc9b48a, transparent: true, opacity: 0.28,
         emissive: l.kind === 'river' ? 0x3a8ab0 : 0x8a7a50, emissiveIntensity: 0.25,
       })
-      const guide = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.03, 6, false), guideMat)
+      const guide = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.045, 6, false), guideMat)
       group.add(guide)
       const hit = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.28, 6, false), new THREE.MeshBasicMaterial({ visible: false }))
       hit.userData.pick = { kind: 'link', id: l.id } satisfies Pick
       group.add(hit)
       this.hits.push(hit)
       this.scene.add(group)
+      group.userData.offBoard = true // guides keep full brightness when highlighted
       this.linkVis.set(l.id, { group, hit, guide, owned: null, owner: null })
     }
   }
@@ -507,7 +713,7 @@ export class WarTable {
       const rel = (i - startIdx + n) % n
       const ang = n === 2 ? [0, Math.PI][rel] : (rel / n) * Math.PI * 2
       this.seatAngle.set(p.id, ang)
-      const k = this.makeKeep(new THREE.Color(p.color).getHex(), p.name)
+      const k = this.makeKeep(new THREE.Color(p.color).getHex(), p.id === localId ? null : p.name)
       const r = 15.6
       k.group.position.set(Math.sin(ang) * r * 1.08, -0.45, Math.cos(ang) * r * 0.95)
       k.group.rotation.y = ang + Math.PI
@@ -517,8 +723,9 @@ export class WarTable {
     })
   }
 
-  private makeKeep(color: number, name: string): Keep {
+  private makeKeep(color: number, name: string | null): Keep {
     const g = new THREE.Group()
+    g.userData.offBoard = true
     const stone = mat(0x6f6a62, { roughness: 0.9 })
     const plinth = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.7, 10), stone)
     plinth.position.y = 0.35
@@ -528,36 +735,41 @@ export class WarTable {
       step.position.set(0, 0.78 + i * 0.16, 0.7 - i * 0.3)
       g.add(step)
     }
-    // The keep tower behind the throne.
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 3.6, 12), stone)
-    tower.position.set(0, 2.5, -1.4)
-    g.add(tower)
-    for (let i = 0; i < 8; i++) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.32, 0.28), stone)
-      const a = (i / 8) * Math.PI * 2
-      m.position.set(Math.cos(a) * 0.85, 4.45, -1.4 + Math.sin(a) * 0.85)
-      g.add(m)
+    // Rival keeps get a tower beside the throne; yours is left out so it
+    // never stands between you and the valley.
+    if (name !== null) {
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 3.6, 12), stone)
+      tower.position.set(-2.3, 2.5, 0.6)
+      g.add(tower)
+      for (let i = 0; i < 8; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.32, 0.28), stone)
+        const a = (i / 8) * Math.PI * 2
+        m.position.set(-2.3 + Math.cos(a) * 0.85, 4.45, 0.6 + Math.sin(a) * 0.85)
+        g.add(m)
+      }
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 1.4, 12), mat(color, { roughness: 0.5 }))
+      roof.position.set(-2.3, 5.2, 0.6)
+      g.add(roof)
     }
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 1.4, 12), mat(color, { roughness: 0.5 }))
-    roof.position.set(0, 5.2, -1.4)
-    g.add(roof)
     // Throne.
     const gold = mat(0xd4a94a, { metalness: 0.85, roughness: 0.3 })
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.75), mat(0x4a2618))
     seat.position.set(0, 1.5, 0)
     g.add(seat)
-    const back = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.7, 0.18), gold)
-    back.position.set(0, 2.25, -0.38)
+    // Your own throne has a low back so the camera sees over your shoulder.
+    const backH = name === null ? 0.55 : 1.7
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.0, backH, 0.18), gold)
+    back.position.set(0, 1.4 + backH / 2, -0.38)
     g.add(back)
-    const cush = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.3, 0.06), mat(color))
-    cush.position.set(0, 2.2, -0.27)
+    const cush = new THREE.Mesh(new THREE.BoxGeometry(0.8, backH * 0.76, 0.06), mat(color))
+    cush.position.set(0, 1.4 + backH / 2, -0.27)
     g.add(cush)
     for (const sx of [-0.5, 0.5]) {
       const armrest = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.8), gold)
       armrest.position.set(sx, 1.85, 0)
       g.add(armrest)
       const finial = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), gold)
-      finial.position.set(sx, 3.15, -0.38)
+      finial.position.set(sx, 1.45 + backH, -0.38)
       g.add(finial)
     }
     // Commander.
@@ -594,10 +806,12 @@ export class WarTable {
       const torch = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xff8a2a, emissiveIntensity: 4 }))
       torch.position.set(sx * 0.7, 1.3, 1.2)
       g.add(torch)
-      const light = new THREE.PointLight(0xff9a40, 4, 6, 1.6)
-      light.position.copy(torch.position).setY(1.6)
-      g.add(light)
-      this.torches.push(light)
+      if (sx > 0) {
+        const light = new THREE.PointLight(0xff9a40, 9, 9, 1.6)
+        light.position.set(0, 2.2, 1.4)
+        g.add(light)
+        this.torches.push(light)
+      }
     }
     const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3, 8, 8), mat(color, { side: THREE.DoubleSide, roughness: 0.7 }))
     flag.position.set(1.9 + 0.46, 3.2, -0.4)
@@ -608,8 +822,9 @@ export class WarTable {
     const halo = new THREE.PointLight(0xffd27a, 0, 7, 1.4)
     halo.position.set(0, 3.6, 1.2)
     g.add(halo)
-    const label = textSprite(name, { size: 46, color: '#f6e7c2', bg: 'rgba(20,14,8,.65)', bold: true })
-    label.position.set(0, 6.4, -1.4)
+    // Your own keep carries no label: it would block the throne view.
+    const label = name ? textSprite(name, { size: 46, color: '#f6e7c2', bg: 'rgba(20,14,8,.65)', bold: true }) : new THREE.Object3D()
+    label.position.set(0, 4.6, -0.4)
     g.add(label)
     g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true } })
     return { group: g, commander: cmd, arm, halo, banner: flag, pos: g.position.clone() }
@@ -621,15 +836,16 @@ export class WarTable {
     this.view = v
     const ang = (localId ? this.seatAngle.get(localId) : undefined) ?? 0
     const pos = v === 'pov'
-      ? new THREE.Vector3(Math.sin(ang) * 21, 10.5, Math.cos(ang) * 21)
+      ? new THREE.Vector3(Math.sin(ang) * 21, 6.4, Math.cos(ang) * 21)
       : new THREE.Vector3(Math.sin(ang) * 3, 31, Math.cos(ang) * 9)
-    const target = v === 'pov' ? new THREE.Vector3(Math.sin(ang) * 2.5, 0, Math.cos(ang) * 2.5) : new THREE.Vector3(0, 0, 0.5)
+    const target = v === 'pov' ? new THREE.Vector3(Math.sin(ang) * 5, 0.8, Math.cos(ang) * 5) : new THREE.Vector3(0, 0, 0.5)
     gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: dur, ease: 'power2.inOut' })
     gsap.to(this.controls.target, { x: target.x, y: target.y, z: target.z, duration: dur, ease: 'power2.inOut' })
   }
 
   /** Sweeping opening shot that lands in the player's throne view. */
   intro(localId: string | null): Promise<void> {
+    if (document.hidden) { this.setView('pov', localId, 0.01); return Promise.resolve() }
     this.camera.position.set(-30, 34, -26)
     this.controls.target.set(0, 0, 0)
     return new Promise((res) => {
@@ -682,6 +898,7 @@ export class WarTable {
       towns: sel.towns ?? new Set(), links: sel.links ?? new Set(),
       plots: sel.plots ?? new Set(), buildings: sel.buildings ?? new Set(),
     }
+    this.relight(this.lastState)
   }
 
   // ------------------------------------------------------------ state sync
@@ -704,6 +921,7 @@ export class WarTable {
         g.rotation.y = hash(slot, t.x) * 6
         g.userData.pick = { kind: 'building', town: t.id, slot } satisfies Pick
         g.traverse((o) => { o.userData.pick = g.userData.pick })
+        lanternizeTree(g)
         this.scene.add(g)
         this.hits.push(...g.children)
         this.buildingVis.set(key, { sig, group: g })
@@ -727,9 +945,12 @@ export class WarTable {
       if (owner) {
         const col = new THREE.Color(s.players.find((p) => p.id === owner)!.color).getHex()
         v.owned = this.makeOwnedLink(l.id, l.kind, col)
+        lanternizeTree(v.owned)
         v.group.add(v.owned)
       }
     }
+    this.lastState = s
+    this.relight(s)
     // Territory: a coloured ring per player around every town in their network.
     this.territory.clear()
     s.players.forEach((p, i) => {
@@ -779,6 +1000,7 @@ export class WarTable {
       barge.userData.curve = curve
       barge.userData.speed = 0.05 + hash(id.length, 3) * 0.04
       barge.userData.t = hash(id.length, 7)
+      this.barges.push(barge)
       g.add(barge)
     } else {
       const road = new THREE.Mesh(new THREE.TubeGeometry(curve, 30, 0.07, 4, false), mat(0x8b8170, { roughness: 1 }))
@@ -819,7 +1041,7 @@ export class WarTable {
       }
       const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.02, 6, 16), mat(0x2b2b2b, { metalness: 0.8 }))
       wheel.position.set(0, 0.56, 0)
-      wheel.userData.spin = true
+      this.spinners.push(wheel)
       g.add(wheel)
       const flag = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.01), own)
       flag.position.set(0.08, 0.72, 0)
@@ -889,7 +1111,7 @@ export class WarTable {
     for (const [key, pad] of this.plotPads) {
       const on = this.selectable.plots.has(key)
       const m = pad.material as THREE.MeshStandardMaterial
-      m.emissiveIntensity = on ? 0.6 + pulse * 1.4 : 0
+      m.emissiveIntensity = on ? 1.2 + pulse * 2.2 : 0
     }
     for (const [id, v] of this.linkVis) {
       const on = this.selectable.links.has(id)
@@ -908,7 +1130,7 @@ export class WarTable {
   setTurn(s: GameState, currentId: string | null): void {
     for (const [pid, k] of this.keeps) {
       const on = pid === currentId
-      gsap.to(k.halo, { intensity: on ? 18 : 0, duration: 0.5 })
+      gsap.to(k.halo, { intensity: on ? 5 : 0, duration: 0.5 })
       gsap.to(k.arm.rotation, { x: on ? -2.6 : -0.4, duration: 0.6, ease: 'back.out(2)' })
     }
     void s
@@ -993,8 +1215,8 @@ export class WarTable {
     })
   }
 
-  floatText(text: string, at: THREE.Vector3, color = '#ffe08a'): void {
-    const sp = textSprite(text, { size: 60, color, bold: true })
+  floatText(text: string, at: THREE.Vector3, color = '#ffe08a', glyph?: Glyph): void {
+    const sp = textSprite(text, { size: 60, color, bold: true, glyph })
     sp.position.copy(at).add(new THREE.Vector3(0, 0.8, 0))
     this.fxLayer.add(sp)
     gsap.to(sp.position, { y: sp.position.y + 1.6, duration: 1.6, ease: 'power2.out' })
@@ -1014,11 +1236,19 @@ export class WarTable {
 
   quake(power = 0.35): void { this.shake = power }
 
+  /** Screen position (CSS px) of a plot, for tests and tutorials. */
+  screenOfPlot(town: string, slot: number): { x: number; y: number } {
+    const v = plotPos(town, slot).project(this.camera)
+    const r = this.renderer.domElement.getBoundingClientRect()
+    return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
+  }
+
   townPoint(id: string): THREE.Vector3 { return townPos(id) }
   linkPoint(id: string): THREE.Vector3 { return linkCurve(id).getPoint(0.5) }
 
   /** Play one action's effects; resolves when the animation is done. */
   async play(fx: Fx[], s: GameState, fast: boolean): Promise<void> {
+    if (document.hidden) return
     const color = (pid: string) => s.players.find((p) => p.id === pid)?.color ?? '#ffffff'
     const speed = fast ? 0.55 : 1
     const jobs: Promise<void>[] = []
@@ -1041,19 +1271,21 @@ export class WarTable {
         const at = townPos(f.contract.town)
         jobs.push(new Promise<void>((r) => setTimeout(r, 700 * speed)).then(() => {
           this.burst(at.clone().add(new THREE.Vector3(0, 0.5, 0)), 0xffe08a, 50)
-          this.floatText(`+£${f.contract.money}  +${f.contract.vp} VP`, at)
+          this.floatText(`+${f.contract.money}`, at, '#ffe08a', 'mark')
+          this.floatText(`+${f.contract.vp}`, at.clone().add(new THREE.Vector3(0, 0.7, 0)), '#f3d98d', 'glory')
           this.quake(0.15)
         }))
       } else if (f.kind === 'pay' && f.why === 'toll') {
         const k = this.keepOf(f.to)
-        this.floatText(`+£${f.amount} toll`, k.clone().setY(3), '#ffd27a')
+        this.floatText(`+${f.amount} toll`, k.clone().setY(3), '#ffd27a', 'mark')
       } else if (f.kind === 'trade') {
-        this.floatText(`+£${f.earned}`, this.keepOf(f.who).setY(3.2), '#ffe08a')
+        this.floatText(`+${f.earned}`, this.keepOf(f.who).setY(3.2), '#ffe08a', 'mark')
       } else if (f.kind === 'tick') {
         this.quake(0.4)
       }
     }
-    await Promise.all(jobs)
+    // Never let an animation hold up the game (hidden tabs pause frames).
+    await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 3500))])
   }
 
   // ------------------------------------------------------------ frame
@@ -1085,18 +1317,29 @@ export class WarTable {
       k.banner.rotation.y = Math.sin(t * 1.8) * 0.18
     }
     for (const h of this.hammers) h.rotation.z = Math.max(0, Math.sin(t * 6)) * 1.4 - 0.4
-    // Barges drift along their lanes; mine wheels turn; chimneys smoke.
-    this.scene.traverse((o) => {
-      if (o.userData.curve) {
-        o.userData.t = (o.userData.t + dt * o.userData.speed) % 1
-        const c = o.userData.curve as THREE.CatmullRomCurve3
-        const p = c.getPoint(o.userData.t)
-        o.position.copy(p)
-        const q = c.getTangent(o.userData.t)
-        o.rotation.y = Math.atan2(q.x, q.z) - Math.PI / 2
-      }
-      if (o.userData.spin) o.rotation.z += dt * 2
-      if (o.userData.bob !== undefined) o.position.y = Math.sin(t * 1.4 + o.userData.bob) * 0.02
+    // Barges drift along their lanes; mine wheels turn; ships bob.
+    for (const o of this.barges) {
+      if (!o.parent) continue
+      o.userData.t = (o.userData.t + dt * o.userData.speed) % 1
+      const c = o.userData.curve as THREE.CatmullRomCurve3
+      o.position.copy(c.getPoint(o.userData.t))
+      const q = c.getTangent(o.userData.t)
+      o.rotation.y = Math.atan2(q.x, q.z) - Math.PI / 2
+    }
+    for (const o of this.spinners) o.rotation.z += dt * 2
+    for (const o of this.bobbers) o.position.y = Math.sin(t * 1.4 + o.userData.bob) * 0.02
+    LAMPS.uTime.value = t
+    const ep = this.embers.geometry.attributes.position as THREE.BufferAttribute
+    for (let i = 0; i < ep.count; i++) {
+      let y = ep.getY(i) + dt * (0.12 + (i % 7) * 0.02)
+      if (y > 3.4) y = 0.3
+      ep.setXYZ(i, ep.getX(i) + Math.sin(t * 0.7 + i) * dt * 0.08, y, ep.getZ(i) + Math.cos(t * 0.5 + i) * dt * 0.08)
+    }
+    ep.needsUpdate = true
+    this.mist.forEach((m, i) => {
+      const mp = (m.material as THREE.MeshBasicMaterial).map!
+      mp.offset.x = t * 0.004 * (i ? -1 : 1)
+      mp.offset.y = t * 0.002
     })
     if (Math.random() < dt * 6) {
       for (const { group } of this.buildingVis.values()) {

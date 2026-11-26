@@ -147,7 +147,7 @@ export const CONTRACT_ROW = 4
 export const CONTRACT_AGING = 2
 export const GOAL_VP: [number, number] = [8, 4]
 
-/** Most £ a single Wait can collect. */
+/** Most marks a single Wait can collect. */
 export const WAIT_CAP = 2
 
 // Contract templates per Age. Rewards are computed from good values so the
@@ -192,10 +192,10 @@ export const EVENTS: EventDef[] = [
   { id: 'foundry', title: 'Foundry Fever', text: 'Bell-makers want bronze. Bronze rises 2 steps.', effect: { kind: 'price', good: 'bronze', steps: 2 } },
   { id: 'slump', title: 'Bronze Slump', text: 'Cheap imports land. Bronze falls 2 steps.', effect: { kind: 'price', good: 'bronze', steps: -2 } },
   { id: 'machineage', title: 'Machine Age', text: 'Mills retool. Machines rise 2 steps.', effect: { kind: 'price', good: 'machine', steps: 2 } },
-  { id: 'railboom', title: 'Rail Boom', text: 'Land links cost £2 less until the next tick.', effect: { kind: 'landDiscount', amount: 2 } },
-  { id: 'flood', title: 'Flood Season', text: 'River links cost £2 more until the next tick.', effect: { kind: 'riverSurcharge', amount: 2 } },
-  { id: 'fair', title: 'Merchant Fair', text: 'Every open contract pays £3 more.', effect: { kind: 'contractBonus', amount: 3 } },
-  { id: 'relief', title: "Patron's Gift", text: 'The player with the fewest VP receives £6.', effect: { kind: 'reliefLowest', amount: 6 } },
+  { id: 'railboom', title: 'Road Boom', text: 'Roads cost 2 marks less until the next tick.', effect: { kind: 'landDiscount', amount: 2 } },
+  { id: 'flood', title: 'Flood Season', text: 'River links cost 2 marks more until the next tick.', effect: { kind: 'riverSurcharge', amount: 2 } },
+  { id: 'fair', title: 'Merchant Fair', text: 'Every open contract pays 3 marks more.', effect: { kind: 'contractBonus', amount: 3 } },
+  { id: 'relief', title: "Patron's Gift", text: 'The lord with the least glory receives 6 marks.', effect: { kind: 'reliefLowest', amount: 6 } },
   { id: 'calm', title: 'Calm Markets', text: 'Nothing stirs this season.', effect: { kind: 'none' } },
 ]
 

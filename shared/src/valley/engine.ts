@@ -167,7 +167,7 @@ export function goodsCount(g: Goods): number {
 }
 
 export function goodsLabel(g: Goods): string {
-  return GOODS.filter((k) => g[k]).map((k) => `${g[k]} ${k}`).join(' + ')
+  return GOODS.filter((k) => g[k]).map((k) => `${g[k]} ${goodName(k)}`).join(' + ')
 }
 
 // ------------------------------------------------------------------- setup
@@ -293,7 +293,7 @@ export function network(s: GameState, pid: string): Set<string> {
 
 export interface PathInfo { path: string[]; tolls: { owner: string; n: number }[]; toll: number }
 
-/** Cheapest path over claimed links for `pid` (own links free, others £1). */
+/** Cheapest path over claimed links for `pid` (own links free, others 1 mark). */
 export function findPath(s: GameState, pid: string, from: string, to: string | ((t: string) => boolean)): PathInfo | null {
   const isGoal = typeof to === 'string' ? (t: string) => t === to : to
   const dist = new Map<string, number>([[from, 0]])
@@ -350,7 +350,7 @@ export function linkCost(s: GameState, linkId: string): { money: number; coal: n
 // --------------------------------------------------------------- economy ops
 
 function pay(s: GameState, p: Player, amount: number): void {
-  if (p.money < amount) fail(`Not enough money (need £${amount}, have £${p.money})`)
+  if (p.money < amount) fail(`Not enough money (need ${amount} marks, have ${p.money} marks)`)
   p.money -= amount
 }
 
@@ -440,7 +440,7 @@ function payday(s: GameState, p: Player): void {
   s.fx.push({ kind: 'payday', who: p.id, amount: inc })
   if (p.money < 0) {
     addVP(s, p, p.money, 'Debts')
-    log(s, `${p.name} could not cover £${-p.money} of upkeep and lost ${-p.money} VP.`, p.id)
+    log(s, `${p.name} could not cover ${-p.money} marks of upkeep and lost ${-p.money} glory.`, p.id)
     p.money = 0
   }
 }
@@ -554,7 +554,7 @@ function endGame(s: GameState): void {
       breakdown: Object.entries(s.earned[p.id]).map(([label, vp]) => ({ label, vp })),
     }))
   s.fx.push({ kind: 'end' })
-  log(s, `The valley falls quiet. ${s.final[0].name} wins with ${s.final[0].vp} VP.`)
+  log(s, `The valley falls quiet. ${s.final[0].name} wins with ${s.final[0].vp} glory.`)
 }
 
 // ------------------------------------------------------------------ actions
@@ -591,7 +591,7 @@ export function apply(prev: GameState, pid: string, a: Action): GameState {
       if (p.bonds >= MAX_BONDS) fail('No more bonds allowed')
       p.bonds++
       p.money += BOND_AMOUNT
-      log(s, `${p.name} issued a bond for £${BOND_AMOUNT} (income −${BOND_INCOME}).`, p.id)
+      log(s, `${p.name} issued a bond for ${BOND_AMOUNT} marks (income −${BOND_INCOME}).`, p.id)
       break
     }
     case 'wait': {
@@ -600,7 +600,7 @@ export function apply(prev: GameState, pid: string, a: Action): GameState {
       // Capped so the last player in an Age can't bank a long jump.
       const gain = Math.min(steps, WAIT_CAP)
       p.money += gain
-      log(s, `${p.name} waited ${steps} and collected £${gain}.`, p.id)
+      log(s, `${p.name} waited ${steps} and collected ${gain} marks.`, p.id)
       advance(s, p, steps)
       break
     }
@@ -639,7 +639,7 @@ function doBuild(s: GameState, p: Player, a: Extract<Action, { type: 'build' }>)
     pay(s, p, cost)
     existing.level = a.level
     s.fx.push({ kind: 'build', town: a.town, slot: a.slot, who: p.id, upgrade: true })
-    log(s, `${p.name} upgraded a ${a.kind} in ${town.name} to level ${roman(a.level)} (£${cost}).`, p.id)
+    log(s, `${p.name} upgraded a ${kindName(a.kind)} in ${town.name} to level ${roman(a.level)} (${cost} marks).`, p.id)
     return
   }
   if (a.kind === 'works' && s.age < WORKS_AGE) fail(`Forges open in Age ${roman(WORKS_AGE)}`)
@@ -657,8 +657,8 @@ function doBuild(s: GameState, p: Player, a: Extract<Action, { type: 'build' }>)
     goods: {},
   }
   s.fx.push({ kind: 'build', town: a.town, slot: a.slot, who: p.id, upgrade: false })
-  const what = a.kind === 'mine' ? `${town.deposit} mine` : a.kind
-  log(s, `${p.name} built a level ${roman(a.level)} ${what} in ${town.name} (£${cost}).`, p.id)
+  const what = a.kind === 'mine' ? `${town.deposit} mine` : kindName(a.kind)
+  log(s, `${p.name} built a level ${roman(a.level)} ${what} in ${town.name} (${cost} marks).`, p.id)
 }
 
 function doRoute(s: GameState, p: Player, linkId: string): void {
@@ -714,7 +714,7 @@ function doRun(s: GameState, p: Player, town: string, slot: number): void {
   const bb = s.plots[town][slot]!
   if (recipe.out === 'bronze') player(s, p.id).stats.bronze += made
   s.fx.push({ kind: 'produce', town, slot, good: recipe.out, n: made })
-  log(s, `${p.name}'s ${bb.kind} in ${name} made ${made} ${recipe.out}.`, p.id)
+  log(s, `${p.name}'s ${kindName(bb.kind)} in ${name} made ${made} ${goodName(recipe.out)}.`, p.id)
 }
 
 function doDeliver(s: GameState, p: Player, id: string): void {
@@ -730,7 +730,7 @@ function doDeliver(s: GameState, p: Player, id: string): void {
   s.contracts.splice(idx, 1)
   dealContracts(s)
   s.fx.push({ kind: 'deliver', contract: c, who: p.id })
-  log(s, `${p.name} delivered ${goodsLabel(c.wants)} to ${TOWN_BY_ID.get(c.town)!.name} for £${c.money} and ${c.vp} VP.`, p.id)
+  log(s, `${p.name} delivered ${goodsLabel(c.wants)} to ${TOWN_BY_ID.get(c.town)!.name} for ${c.money} marks and ${c.vp} glory.`, p.id)
 }
 
 function doTrade(s: GameState, p: Player, g: Good, qty: number): void {
@@ -753,7 +753,7 @@ function doTrade(s: GameState, p: Player, g: Good, qty: number): void {
     s.fx.push({ kind: 'move', good: g, path: best.info.path, from: best.town, to: 'exchange', who: p.id })
   }
   s.fx.push({ kind: 'trade', good: g, n: qty, earned, who: p.id })
-  log(s, `${p.name} sold ${qty} ${g} to the exchange for £${earned}.`, p.id)
+  log(s, `${p.name} sold ${qty} ${goodName(g)} to the exchange for ${earned} marks.`, p.id)
 }
 
 // --------------------------------------------------------------- enumeration
@@ -807,7 +807,7 @@ export function describe(s: GameState, a: Action): string {
       return c ? `Deliver ${goodsLabel(c.wants)} to ${TOWN_BY_ID.get(c.town)!.name}` : 'Deliver'
     }
     case 'trade': return `Sell ${a.qty} ${a.good}`
-    case 'bond': return `Issue a bond (+£${BOND_AMOUNT})`
+    case 'bond': return `Issue a bond (+${BOND_AMOUNT} marks)`
     case 'wait': return 'Wait'
   }
 }
@@ -817,4 +817,12 @@ export function reach(net: Set<string>): Set<string> {
   const out = new Set(net)
   for (const t of net) for (const l of ADJ.get(t) ?? []) out.add(l.a === t ? l.b : l.a)
   return out
+}
+
+/** Display names used in log text. */
+export function goodName(g: Good): string {
+  return g === 'machine' ? 'arms' : g
+}
+export function kindName(k: BuildingKind): string {
+  return k === 'works' ? 'forge' : k
 }
