@@ -17,7 +17,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./bronze": "./src/bronze/state.ts",
-    "./bronze-ai": "./src/bronze/ai.ts"
+    "./valley": "./src/valley/engine.ts",
+    "./valley-ai": "./src/valley/ai.ts"
   }
 }

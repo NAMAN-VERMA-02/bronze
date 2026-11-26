@@ -1,0 +1,1128 @@
+// The 3D war table: a sculpted valley with a living river, forests, towns,
+// harbours, player keeps with commanders on thrones, and workers who carry
+// out every order. The scene only draws state; it never decides rules.
+
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import gsap from 'gsap'
+import {
+  LINKS, LINK_BY_ID, TOWNS, TOWN_BY_ID, network,
+  type Building, type Fx, type GameState, type Good,
+} from '@bronze/shared/valley'
+
+export const GOOD_COLOR: Record<Good, number> = {
+  coal: 0x26262b, copper: 0xc0703c, tin: 0xb9c4cf, bronze: 0xd29a3e, machine: 0x9fb4c4,
+}
+
+const BOARD_W = 28
+const BOARD_D = 25
+const WATER_Y = -0.1
+
+// ------------------------------------------------------------ terrain math
+
+function hash(x: number, z: number): number {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453
+  return s - Math.floor(s)
+}
+function vnoise(x: number, z: number): number {
+  const xi = Math.floor(x), zi = Math.floor(z)
+  const xf = x - xi, zf = z - zi
+  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf)
+  const a = hash(xi, zi), b = hash(xi + 1, zi), c = hash(xi, zi + 1), d = hash(xi + 1, zi + 1)
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+function fbm(x: number, z: number): number {
+  let f = 0, amp = 0.5, fr = 1
+  for (let i = 0; i < 5; i++) { f += amp * vnoise(x * fr, z * fr); amp *= 0.5; fr *= 2.03 }
+  return f
+}
+function segDist(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax, dz = bz - az
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz)))
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz))
+}
+const smooth = (e0: number, e1: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)))
+  return t * t * (3 - 2 * t)
+}
+
+const RIVERS = LINKS.filter((l) => l.kind === 'river').map((l) => {
+  const a = TOWN_BY_ID.get(l.a)!, b = TOWN_BY_ID.get(l.b)!
+  return [a.x, a.z, b.x, b.z]
+})
+
+/** Ground height at (x, z). Towns sit on flat ground; rivers cut channels. */
+export function heightAt(x: number, z: number): number {
+  let h = 0.08 + (fbm(x * 0.16 + 3, z * 0.16 - 7) - 0.45) * 1.1
+  // Mountains rise in the wild corners, away from the river.
+  h += Math.max(0, fbm(x * 0.09 - 11, z * 0.09 + 5) - 0.5) * 5.2
+  let river = 99
+  for (const r of RIVERS) river = Math.min(river, segDist(x, z, r[0], r[1], r[2], r[3]))
+  h = h * smooth(0.4, 2.6, river) + 0.06 * (1 - smooth(0.4, 2.6, river))
+  h -= 0.34 * (1 - smooth(0.18, 0.62, river))
+  for (const t of TOWNS) {
+    const d = Math.hypot(x - t.x, z - t.z)
+    if (t.port) h -= 0.55 * (1 - smooth(0.6, 2.3, d))
+    else h = h * smooth(0.9, 1.8, d) + 0.1 * (1 - smooth(0.9, 1.8, d))
+  }
+  // Fade to a rim at the board edge.
+  const edge = Math.min(BOARD_W / 2 - Math.abs(x), BOARD_D / 2 - Math.abs(z))
+  return h * smooth(0, 1.2, edge)
+}
+
+// --------------------------------------------------------------- helpers
+
+function mat(color: number, opts: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...opts })
+}
+
+function textSprite(text: string, opts: { size?: number; color?: string; bg?: string; bold?: boolean } = {}): THREE.Sprite {
+  const size = opts.size ?? 44
+  const c = document.createElement('canvas')
+  const ctx = c.getContext('2d')!
+  ctx.font = `${opts.bold ? 'bold ' : ''}${size}px "Cinzel", Georgia, serif`
+  const w = Math.ceil(ctx.measureText(text).width) + size
+  c.width = w
+  c.height = Math.ceil(size * 1.6)
+  ctx.font = `${opts.bold ? 'bold ' : ''}${size}px "Cinzel", Georgia, serif`
+  if (opts.bg) {
+    ctx.fillStyle = opts.bg
+    const r = c.height / 2
+    ctx.beginPath()
+    ctx.roundRect(2, 2, w - 4, c.height - 4, r)
+    ctx.fill()
+  }
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineWidth = size / 6
+  ctx.strokeStyle = 'rgba(10,8,5,.85)'
+  ctx.strokeText(text, w / 2, c.height / 2)
+  ctx.fillStyle = opts.color ?? '#f1e2bc'
+  ctx.fillText(text, w / 2, c.height / 2)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 4
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }))
+  const scale = 0.011 * (size / 44)
+  sp.scale.set(c.width * scale, c.height * scale, 1)
+  return sp
+}
+
+export function plotPos(townId: string, slot: number): THREE.Vector3 {
+  const t = TOWN_BY_ID.get(townId)!
+  const n = t.plots
+  const ang = (slot / Math.max(1, n)) * Math.PI * 2 + 0.6
+  const r = n === 1 ? 0 : 0.62
+  const x = t.x + Math.cos(ang) * r
+  const z = t.z + Math.sin(ang) * r
+  return new THREE.Vector3(x, heightAt(x, z), z)
+}
+
+function townPos(id: string): THREE.Vector3 {
+  const t = TOWN_BY_ID.get(id)!
+  return new THREE.Vector3(t.x, Math.max(WATER_Y, heightAt(t.x, t.z)), t.z)
+}
+
+function linkCurve(id: string): THREE.CatmullRomCurve3 {
+  const l = LINK_BY_ID.get(id)!
+  const a = townPos(l.a), b = townPos(l.b)
+  const pts: THREE.Vector3[] = []
+  const n = 16
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const x = a.x + (b.x - a.x) * t
+    const z = a.z + (b.z - a.z) * t
+    // Land roads hug the terrain; river lanes ride on the water.
+    const y = l.kind === 'river' ? WATER_Y + 0.05 : heightAt(x, z) + 0.05
+    pts.push(new THREE.Vector3(x, y, z))
+  }
+  return new THREE.CatmullRomCurve3(pts)
+}
+
+// ----------------------------------------------------------- the scene
+
+export type Pick =
+  | { kind: 'town'; id: string }
+  | { kind: 'link'; id: string }
+  | { kind: 'plot'; town: string; slot: number }
+  | { kind: 'building'; town: string; slot: number }
+
+interface LinkVis { group: THREE.Group; hit: THREE.Mesh; guide: THREE.Mesh; owned: THREE.Object3D | null; owner: string | null }
+interface Keep { group: THREE.Group; commander: THREE.Group; arm: THREE.Object3D; halo: THREE.PointLight; banner: THREE.Mesh; pos: THREE.Vector3 }
+
+export class WarTable {
+  readonly renderer: THREE.WebGLRenderer
+  readonly scene = new THREE.Scene()
+  readonly camera: THREE.PerspectiveCamera
+  private controls: OrbitControls
+  private composer: EffectComposer
+  private clock = new THREE.Clock()
+  private raycaster = new THREE.Raycaster()
+  private pointer = new THREE.Vector2()
+  private hits: THREE.Object3D[] = []
+  private townRings = new Map<string, THREE.Mesh>()
+  private plotPads = new Map<string, THREE.Mesh>()
+  private buildingVis = new Map<string, { sig: string; group: THREE.Group }>()
+  private goodsVis = new Map<string, THREE.Group>()
+  private linkVis = new Map<string, LinkVis>()
+  private keeps = new Map<string, Keep>()
+  private territory = new THREE.Group()
+  private fxLayer = new THREE.Group()
+  private smoke: { sp: THREE.Sprite; life: number; v: THREE.Vector3 }[] = []
+  private smokeTex: THREE.Texture
+  private water!: THREE.Mesh
+  private torches: THREE.PointLight[] = []
+  private hammers: THREE.Object3D[] = []
+  private selectable: { towns: Set<string>; links: Set<string>; plots: Set<string>; buildings: Set<string> } = {
+    towns: new Set(), links: new Set(), plots: new Set(), buildings: new Set(),
+  }
+  private hoverObj: THREE.Object3D | null = null
+  private downAt = { x: 0, y: 0 }
+  private seatAngle = new Map<string, number>()
+  private shake = 0
+  view: 'pov' | 'overview' = 'pov'
+  onPick: (p: Pick) => void = () => {}
+  onHover: (p: Pick | null) => void = () => {}
+
+  constructor(host: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setSize(host.clientWidth, host.clientHeight)
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.05
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    host.appendChild(this.renderer.domElement)
+
+    this.camera = new THREE.PerspectiveCamera(42, host.clientWidth / host.clientHeight, 0.1, 400)
+    this.camera.position.set(0, 60, 60)
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+    this.controls.enableDamping = true
+    this.controls.dampingFactor = 0.08
+    this.controls.maxPolarAngle = Math.PI * 0.46
+    this.controls.minDistance = 7
+    this.controls.maxDistance = 48
+    this.controls.target.set(0, 0, 1)
+
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(host.clientWidth, host.clientHeight), 0.55, 0.6, 0.82))
+    this.composer.addPass(new OutputPass())
+
+    this.smokeTex = this.makeSmokeTexture()
+    this.buildWorld()
+    this.scene.add(this.territory, this.fxLayer)
+
+    window.addEventListener('resize', () => this.resize(host))
+    const el = this.renderer.domElement
+    el.addEventListener('pointerdown', (e) => { this.downAt = { x: e.clientX, y: e.clientY } })
+    el.addEventListener('pointerup', (e) => {
+      if (Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > 6) return
+      const p = this.pickAt(e)
+      if (p) this.onPick(p)
+    })
+    el.addEventListener('pointermove', (e) => {
+      const p = this.pickAt(e)
+      this.onHover(p)
+      el.style.cursor = p ? 'pointer' : 'grab'
+    })
+    this.renderer.setAnimationLoop(() => this.frame())
+  }
+
+  private resize(host: HTMLElement): void {
+    const w = host.clientWidth, h = host.clientHeight
+    this.camera.aspect = w / h
+    this.camera.updateProjectionMatrix()
+    this.renderer.setSize(w, h)
+    this.composer.setSize(w, h)
+  }
+
+  // ------------------------------------------------------------ world
+
+  private buildWorld(): void {
+    const s = this.scene
+    s.background = new THREE.Color(0x0d0b10)
+    s.fog = new THREE.Fog(0x0d0b10, 38, 90)
+
+    const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x2a1d10, 0.75)
+    s.add(hemi)
+    const sun = new THREE.DirectionalLight(0xffe2b0, 2.4)
+    sun.position.set(-14, 22, 10)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(4096, 4096)
+    const sc = sun.shadow.camera
+    sc.left = -22; sc.right = 22; sc.top = 22; sc.bottom = -22; sc.near = 1; sc.far = 70
+    sun.shadow.bias = -0.0004
+    sun.shadow.normalBias = 0.02
+    s.add(sun)
+    const rim = new THREE.DirectionalLight(0x7a9cff, 0.5)
+    rim.position.set(16, 10, -18)
+    s.add(rim)
+
+    // Great hall floor and the table the valley sits on.
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(90, 64), mat(0x16110c, { roughness: 0.95 }))
+    floor.rotation.x = -Math.PI / 2
+    floor.position.y = -2.2
+    floor.receiveShadow = true
+    s.add(floor)
+    const table = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 3.2, 1.6, BOARD_D + 3.2), mat(0x3b2415, { roughness: 0.6 }))
+    table.position.y = -1.25
+    table.receiveShadow = true
+    table.castShadow = true
+    s.add(table)
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 1.2, 0.5, BOARD_D + 1.2), mat(0x8a6a34, { metalness: 0.7, roughness: 0.35 }))
+    trim.position.y = -0.55
+    s.add(trim)
+
+    this.buildTerrain()
+    this.buildWater()
+    this.buildForest()
+    this.buildTowns()
+    this.buildLinks()
+  }
+
+  private buildTerrain(): void {
+    const seg = 220
+    const geo = new THREE.PlaneGeometry(BOARD_W, BOARD_D, seg, Math.round((seg * BOARD_D) / BOARD_W))
+    geo.rotateX(-Math.PI / 2)
+    const pos = geo.attributes.position as THREE.BufferAttribute
+    const colors = new Float32Array(pos.count * 3)
+    const c = new THREE.Color()
+    const sand = new THREE.Color(0xb59f6e), grass = new THREE.Color(0x587a35), grass2 = new THREE.Color(0x7c9440)
+    const forest = new THREE.Color(0x34502a), rock = new THREE.Color(0x76706a), snow = new THREE.Color(0xe9eef2)
+    const mud = new THREE.Color(0x4b3b26)
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i)
+      const h = heightAt(x, z)
+      pos.setY(i, h)
+      const n = fbm(x * 0.5, z * 0.5)
+      if (h < -0.05) c.copy(mud)
+      else if (h < 0.12) c.copy(sand).lerp(grass, smooth(0.0, 0.12, h))
+      else if (h < 0.9) c.copy(grass).lerp(grass2, n).lerp(forest, smooth(0.45, 0.75, fbm(x * 0.3 + 9, z * 0.3)) * 0.6)
+      else if (h < 1.9) c.copy(rock).lerp(grass, Math.max(0, 0.35 - (h - 0.9)))
+      else c.copy(rock).lerp(snow, smooth(1.9, 2.4, h + n * 0.3))
+      colors.set([c.r, c.g, c.b], i * 3)
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geo.computeVertexNormals()
+    const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, flatShading: false }))
+    terrain.receiveShadow = true
+    terrain.castShadow = true
+    this.scene.add(terrain)
+  }
+
+  private buildWater(): void {
+    const geo = new THREE.PlaneGeometry(BOARD_W, BOARD_D, 1, 1)
+    geo.rotateX(-Math.PI / 2)
+    const m = new THREE.MeshStandardMaterial({
+      color: 0x24617a, roughness: 0.12, metalness: 0.25, transparent: true, opacity: 0.86,
+      emissive: 0x0a2a3a, emissiveIntensity: 0.6,
+    })
+    this.water = new THREE.Mesh(geo, m)
+    this.water.position.y = WATER_Y
+    this.water.receiveShadow = true
+    this.scene.add(this.water)
+  }
+
+  private buildForest(): void {
+    const cone = new THREE.ConeGeometry(0.16, 0.55, 6)
+    cone.translate(0, 0.3, 0)
+    const pine = new THREE.InstancedMesh(cone, mat(0xffffff, { roughness: 0.9 }), 1400)
+    const ball = new THREE.IcosahedronGeometry(0.2, 0)
+    ball.translate(0, 0.28, 0)
+    const oak = new THREE.InstancedMesh(ball, mat(0xffffff, { roughness: 0.9, flatShading: true }), 700)
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3()
+    const col = new THREE.Color()
+    let np = 0, no = 0
+    for (let i = 0; i < 9000 && (np < 1400 || no < 700); i++) {
+      const x = (hash(i, 1.3) - 0.5) * (BOARD_W - 1.2)
+      const z = (hash(i, 7.9) - 0.5) * (BOARD_D - 1.2)
+      const h = heightAt(x, z)
+      if (h < 0.14 || h > 1.6) continue
+      if (fbm(x * 0.3 + 9, z * 0.3) < 0.5) continue
+      if (TOWNS.some((t) => Math.hypot(t.x - x, t.z - z) < 1.6)) continue
+      if (LINKS.some((l) => {
+        const a = TOWN_BY_ID.get(l.a)!, b = TOWN_BY_ID.get(l.b)!
+        return segDist(x, z, a.x, a.z, b.x, b.z) < 0.35
+      })) continue
+      const s = 0.7 + hash(i, 3.1) * 0.8
+      p.set(x, h - 0.02, z)
+      q.setFromEuler(new THREE.Euler(0, hash(i, 5.5) * 6, 0))
+      sc.set(s, s * (0.9 + hash(i, 2.2) * 0.5), s)
+      m4.compose(p, q, sc)
+      if (h > 0.7 || hash(i, 4.4) > 0.45) {
+        if (np >= 1400) continue
+        pine.setMatrixAt(np, m4)
+        pine.setColorAt(np++, col.setHSL(0.3 + hash(i, 6) * 0.06, 0.45, 0.17 + hash(i, 8) * 0.08))
+      } else {
+        if (no >= 700) continue
+        oak.setMatrixAt(no, m4)
+        oak.setColorAt(no++, col.setHSL(0.22 + hash(i, 6) * 0.08, 0.5, 0.25 + hash(i, 8) * 0.1))
+      }
+    }
+    pine.count = np
+    oak.count = no
+    for (const im of [pine, oak]) { im.castShadow = true; im.receiveShadow = true; this.scene.add(im) }
+  }
+
+  private buildTowns(): void {
+    const wall = new THREE.BoxGeometry(0.22, 0.18, 0.18)
+    wall.translate(0, 0.09, 0)
+    const roof = new THREE.ConeGeometry(0.17, 0.16, 4)
+    roof.rotateY(Math.PI / 4)
+    roof.translate(0, 0.26, 0)
+    const walls = new THREE.InstancedMesh(wall, mat(0xd8c9a6, { roughness: 0.85 }), 260)
+    const roofs = new THREE.InstancedMesh(roof, mat(0xffffff, { roughness: 0.7 }), 260)
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1)
+    const col = new THREE.Color()
+    let n = 0
+    for (const t of TOWNS) {
+      const houses = t.port ? 9 : 5 + t.plots * 2
+      for (let i = 0; i < houses; i++) {
+        const ang = (i / houses) * Math.PI * 2 + hash(i, t.x) * 0.5
+        const r = 1.0 + hash(i, t.z) * 0.35
+        const x = t.x + Math.cos(ang) * r, z = t.z + Math.sin(ang) * r
+        p.set(x, Math.max(WATER_Y, heightAt(x, z)), z)
+        q.setFromEuler(new THREE.Euler(0, -ang, 0))
+        m4.compose(p, q, one)
+        walls.setMatrixAt(n, m4)
+        roofs.setMatrixAt(n, m4)
+        roofs.setColorAt(n++, col.setHSL(0.02 + hash(i, 2) * 0.05, 0.45, 0.28 + hash(i, 9) * 0.12))
+      }
+      // Town square and plot pads.
+      const center = townPos(t.id)
+      const square = new THREE.Mesh(new THREE.CylinderGeometry(t.port ? 0.7 : 0.95, 1.05, 0.08, 28), mat(0x7d7462, { roughness: 0.95 }))
+      square.position.copy(center).setY(center.y + 0.02)
+      square.receiveShadow = true
+      this.scene.add(square)
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.035, 8, 48), mat(0xd7b65f, { emissive: 0xd7b65f, emissiveIntensity: 0, transparent: true, opacity: 0 }))
+      ring.rotation.x = Math.PI / 2
+      ring.position.copy(center).setY(center.y + 0.1)
+      this.scene.add(ring)
+      this.townRings.set(t.id, ring)
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.6, 16), new THREE.MeshBasicMaterial({ visible: false }))
+      hit.position.copy(center)
+      hit.userData.pick = { kind: 'town', id: t.id } satisfies Pick
+      this.scene.add(hit)
+      this.hits.push(hit)
+      for (let sl = 0; sl < t.plots; sl++) {
+        const pp = plotPos(t.id, sl)
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.3, 0.06, 20), mat(0x5a5246, { emissive: 0xd7b65f, emissiveIntensity: 0 }))
+        pad.position.copy(pp).setY(pp.y + 0.07)
+        pad.receiveShadow = true
+        pad.userData.pick = { kind: 'plot', town: t.id, slot: sl } satisfies Pick
+        this.scene.add(pad)
+        this.hits.push(pad)
+        this.plotPads.set(`${t.id}:${sl}`, pad)
+      }
+      if (t.deposit) {
+        const ore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), mat(GOOD_COLOR[t.deposit], { metalness: t.deposit === 'coal' ? 0.1 : 0.6, roughness: 0.4, flatShading: true }))
+        ore.position.set(center.x - 0.95, center.y + 0.16, center.z + 0.35)
+        ore.castShadow = true
+        this.scene.add(ore)
+      }
+      if (t.port) this.addHarbour(center)
+      const label = textSprite(t.name.toUpperCase(), { size: t.port ? 40 : 34, color: t.port ? '#9fd2e8' : '#f1e2bc' })
+      label.position.set(center.x, center.y + 1.05, center.z - 0.9)
+      this.scene.add(label)
+    }
+    walls.count = n
+    roofs.count = n
+    for (const im of [walls, roofs]) { im.castShadow = true; im.receiveShadow = true; this.scene.add(im) }
+  }
+
+  private addHarbour(c: THREE.Vector3): void {
+    const g = new THREE.Group()
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.3), mat(0x5b3e22))
+    dock.position.set(0, 0.04, 0.7)
+    g.add(dock)
+    const lightHouse = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.9, 10), mat(0xe8e1d0))
+    lightHouse.position.set(0.7, 0.45, -0.2)
+    g.add(lightHouse)
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb347, emissiveIntensity: 3 }))
+    lamp.position.set(0.7, 0.95, -0.2)
+    g.add(lamp)
+    for (let i = 0; i < 2; i++) {
+      const ship = this.makeShip(0x6b4a2b, 0xe9dfc8)
+      ship.position.set(-0.5 + i * 0.9, -WATER_Y * 0 - 0.02, 1.3 + i * 0.25)
+      ship.rotation.y = 0.4 + i
+      ship.userData.bob = i
+      g.add(ship)
+    }
+    g.position.set(c.x, WATER_Y, c.z)
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true })
+    this.scene.add(g)
+  }
+
+  private makeShip(hull: number, sail: number): THREE.Group {
+    const g = new THREE.Group()
+    const h = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, 0.55, 4, 1), mat(hull))
+    h.rotation.z = Math.PI / 2
+    h.scale.set(1, 1, 0.6)
+    h.position.y = 0.06
+    g.add(h)
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.45), mat(0x3a2814))
+    mast.position.y = 0.3
+    g.add(mast)
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.26), mat(sail, { side: THREE.DoubleSide }))
+    s.position.set(0, 0.32, 0)
+    s.rotation.y = Math.PI / 2
+    g.add(s)
+    return g
+  }
+
+  private buildLinks(): void {
+    for (const l of LINKS) {
+      const curve = linkCurve(l.id)
+      const group = new THREE.Group()
+      const guideMat = new THREE.MeshStandardMaterial({
+        color: l.kind === 'river' ? 0x8fd0ff : 0xc9b48a, transparent: true, opacity: 0.28,
+        emissive: l.kind === 'river' ? 0x3a8ab0 : 0x8a7a50, emissiveIntensity: 0.25,
+      })
+      const guide = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.03, 6, false), guideMat)
+      group.add(guide)
+      const hit = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.28, 6, false), new THREE.MeshBasicMaterial({ visible: false }))
+      hit.userData.pick = { kind: 'link', id: l.id } satisfies Pick
+      group.add(hit)
+      this.hits.push(hit)
+      this.scene.add(group)
+      this.linkVis.set(l.id, { group, hit, guide, owned: null, owner: null })
+    }
+  }
+
+  // ------------------------------------------------------------ keeps
+
+  /** Place one keep per player around the table; `localId` sits at the south edge. */
+  setupKeeps(s: GameState, localId: string | null): void {
+    for (const k of this.keeps.values()) this.scene.remove(k.group)
+    this.keeps.clear()
+    const n = s.players.length
+    const startIdx = Math.max(0, s.players.findIndex((p) => p.id === localId))
+    s.players.forEach((p, i) => {
+      const rel = (i - startIdx + n) % n
+      const ang = n === 2 ? [0, Math.PI][rel] : (rel / n) * Math.PI * 2
+      this.seatAngle.set(p.id, ang)
+      const k = this.makeKeep(new THREE.Color(p.color).getHex(), p.name)
+      const r = 15.6
+      k.group.position.set(Math.sin(ang) * r * 1.08, -0.45, Math.cos(ang) * r * 0.95)
+      k.group.rotation.y = ang + Math.PI
+      k.pos = k.group.position.clone()
+      this.scene.add(k.group)
+      this.keeps.set(p.id, k)
+    })
+  }
+
+  private makeKeep(color: number, name: string): Keep {
+    const g = new THREE.Group()
+    const stone = mat(0x6f6a62, { roughness: 0.9 })
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.7, 10), stone)
+    plinth.position.y = 0.35
+    g.add(plinth)
+    for (let i = 0; i < 3; i++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(1.6 - i * 0.3, 0.16, 0.5), stone)
+      step.position.set(0, 0.78 + i * 0.16, 0.7 - i * 0.3)
+      g.add(step)
+    }
+    // The keep tower behind the throne.
+    const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.0, 3.6, 12), stone)
+    tower.position.set(0, 2.5, -1.4)
+    g.add(tower)
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.32, 0.28), stone)
+      const a = (i / 8) * Math.PI * 2
+      m.position.set(Math.cos(a) * 0.85, 4.45, -1.4 + Math.sin(a) * 0.85)
+      g.add(m)
+    }
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 1.4, 12), mat(color, { roughness: 0.5 }))
+    roof.position.set(0, 5.2, -1.4)
+    g.add(roof)
+    // Throne.
+    const gold = mat(0xd4a94a, { metalness: 0.85, roughness: 0.3 })
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.75), mat(0x4a2618))
+    seat.position.set(0, 1.5, 0)
+    g.add(seat)
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.7, 0.18), gold)
+    back.position.set(0, 2.25, -0.38)
+    g.add(back)
+    const cush = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.3, 0.06), mat(color))
+    cush.position.set(0, 2.2, -0.27)
+    g.add(cush)
+    for (const sx of [-0.5, 0.5]) {
+      const armrest = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.8), gold)
+      armrest.position.set(sx, 1.85, 0)
+      g.add(armrest)
+      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), gold)
+      finial.position.set(sx, 3.15, -0.38)
+      g.add(finial)
+    }
+    // Commander.
+    const cmd = new THREE.Group()
+    const robe = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.1, 10), mat(color, { roughness: 0.6 }))
+    robe.position.y = 0.55
+    cmd.add(robe)
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.28, 0.55, 10), mat(0x8c8f96, { metalness: 0.8, roughness: 0.35 }))
+    chest.position.y = 1.05
+    cmd.add(chest)
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 12), mat(0xe0b896))
+    head.position.y = 1.47
+    cmd.add(head)
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.12, 8, 1, true), gold)
+    crown.position.y = 1.62
+    cmd.add(crown)
+    const arm = new THREE.Group()
+    const armMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55), mat(0x8c8f96, { metalness: 0.8, roughness: 0.35 }))
+    armMesh.position.y = -0.27
+    arm.add(armMesh)
+    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.08), mat(0xdfe6ee, { metalness: 1, roughness: 0.15 }))
+    sword.position.y = -0.85
+    arm.add(sword)
+    arm.position.set(0.3, 1.25, 0)
+    arm.rotation.x = -0.4
+    cmd.add(arm)
+    cmd.position.set(0, 1.6, -0.05)
+    g.add(cmd)
+    // Banners and torches.
+    for (const sx of [-1.9, 1.9]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 3.2), mat(0x3a2814))
+      pole.position.set(sx, 2.3, -0.4)
+      g.add(pole)
+      const torch = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xff8a2a, emissiveIntensity: 4 }))
+      torch.position.set(sx * 0.7, 1.3, 1.2)
+      g.add(torch)
+      const light = new THREE.PointLight(0xff9a40, 4, 6, 1.6)
+      light.position.copy(torch.position).setY(1.6)
+      g.add(light)
+      this.torches.push(light)
+    }
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3, 8, 8), mat(color, { side: THREE.DoubleSide, roughness: 0.7 }))
+    flag.position.set(1.9 + 0.46, 3.2, -0.4)
+    g.add(flag)
+    const flag2 = flag.clone()
+    flag2.position.x = -1.9 + 0.46
+    g.add(flag2)
+    const halo = new THREE.PointLight(0xffd27a, 0, 7, 1.4)
+    halo.position.set(0, 3.6, 1.2)
+    g.add(halo)
+    const label = textSprite(name, { size: 46, color: '#f6e7c2', bg: 'rgba(20,14,8,.65)', bold: true })
+    label.position.set(0, 6.4, -1.4)
+    g.add(label)
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true } })
+    return { group: g, commander: cmd, arm, halo, banner: flag, pos: g.position.clone() }
+  }
+
+  // ------------------------------------------------------------ camera
+
+  setView(v: 'pov' | 'overview', localId: string | null, dur = 1.4): void {
+    this.view = v
+    const ang = (localId ? this.seatAngle.get(localId) : undefined) ?? 0
+    const pos = v === 'pov'
+      ? new THREE.Vector3(Math.sin(ang) * 21, 10.5, Math.cos(ang) * 21)
+      : new THREE.Vector3(Math.sin(ang) * 3, 31, Math.cos(ang) * 9)
+    const target = v === 'pov' ? new THREE.Vector3(Math.sin(ang) * 2.5, 0, Math.cos(ang) * 2.5) : new THREE.Vector3(0, 0, 0.5)
+    gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: dur, ease: 'power2.inOut' })
+    gsap.to(this.controls.target, { x: target.x, y: target.y, z: target.z, duration: dur, ease: 'power2.inOut' })
+  }
+
+  /** Sweeping opening shot that lands in the player's throne view. */
+  intro(localId: string | null): Promise<void> {
+    this.camera.position.set(-30, 34, -26)
+    this.controls.target.set(0, 0, 0)
+    return new Promise((res) => {
+      gsap.to(this.camera.position, { x: 26, y: 20, z: -14, duration: 2.2, ease: 'sine.inOut', onComplete: () => {
+        this.setView('pov', localId, 1.8)
+        setTimeout(res, 1800)
+      } })
+    })
+  }
+
+  focusTown(id: string): void {
+    const t = townPos(id)
+    gsap.to(this.controls.target, { x: t.x, y: 0, z: t.z, duration: 0.8, ease: 'power2.out' })
+  }
+
+  // ------------------------------------------------------------ picking
+
+  private pickAt(e: PointerEvent): Pick | null {
+    const r = this.renderer.domElement.getBoundingClientRect()
+    this.pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
+    this.raycaster.setFromCamera(this.pointer, this.camera)
+    const found = this.raycaster.intersectObjects(this.hits, false)
+    for (const f of found) {
+      const p = f.object.userData.pick as Pick | undefined
+      if (!p) continue
+      if (this.isSelectable(p)) {
+        this.setHover(f.object)
+        return p
+      }
+    }
+    this.setHover(null)
+    return null
+  }
+
+  private isSelectable(p: Pick): boolean {
+    const s = this.selectable
+    if (p.kind === 'town') return s.towns.has(p.id)
+    if (p.kind === 'link') return s.links.has(p.id)
+    if (p.kind === 'plot') return s.plots.has(`${p.town}:${p.slot}`) || s.buildings.has(`${p.town}:${p.slot}`)
+    return s.buildings.has(`${p.town}:${p.slot}`)
+  }
+
+  private setHover(o: THREE.Object3D | null): void {
+    if (this.hoverObj === o) return
+    this.hoverObj = o
+  }
+
+  setSelectable(sel: Partial<WarTable['selectable']>): void {
+    this.selectable = {
+      towns: sel.towns ?? new Set(), links: sel.links ?? new Set(),
+      plots: sel.plots ?? new Set(), buildings: sel.buildings ?? new Set(),
+    }
+  }
+
+  // ------------------------------------------------------------ state sync
+
+  sync(s: GameState): void {
+    // Buildings.
+    const seen = new Set<string>()
+    for (const t of TOWNS) s.plots[t.id].forEach((b, slot) => {
+      const key = `${t.id}:${slot}`
+      if (!b) return
+      seen.add(key)
+      const owner = s.players.find((p) => p.id === b.owner)!
+      const sig = `${b.owner}|${b.kind}|${b.level}`
+      const cur = this.buildingVis.get(key)
+      if (!cur || cur.sig !== sig) {
+        if (cur) this.scene.remove(cur.group)
+        const g = this.makeBuilding(b, new THREE.Color(owner.color).getHex())
+        const pp = plotPos(t.id, slot)
+        g.position.copy(pp).setY(pp.y + 0.09)
+        g.rotation.y = hash(slot, t.x) * 6
+        g.userData.pick = { kind: 'building', town: t.id, slot } satisfies Pick
+        g.traverse((o) => { o.userData.pick = g.userData.pick })
+        this.scene.add(g)
+        this.hits.push(...g.children)
+        this.buildingVis.set(key, { sig, group: g })
+        if (!cur) {
+          g.scale.setScalar(0.01)
+          gsap.to(g.scale, { x: 1, y: 1, z: 1, duration: 0.7, ease: 'back.out(2.2)' })
+        } else gsap.fromTo(g.scale, { x: 1.4, y: 1.4, z: 1.4 }, { x: 1, y: 1, z: 1, duration: 0.6, ease: 'elastic.out(1, 0.5)' })
+      }
+      this.syncGoods(key, b)
+    })
+    for (const [key, v] of this.buildingVis) if (!seen.has(key)) { this.scene.remove(v.group); this.buildingVis.delete(key) }
+    // Links.
+    for (const l of LINKS) {
+      const v = this.linkVis.get(l.id)!
+      const owner = s.links[l.id]
+      if (owner === v.owner) continue
+      v.owner = owner
+      if (v.owned) v.group.remove(v.owned)
+      v.owned = null
+      v.guide.visible = !owner
+      if (owner) {
+        const col = new THREE.Color(s.players.find((p) => p.id === owner)!.color).getHex()
+        v.owned = this.makeOwnedLink(l.id, l.kind, col)
+        v.group.add(v.owned)
+      }
+    }
+    // Territory: a coloured ring per player around every town in their network.
+    this.territory.clear()
+    s.players.forEach((p, i) => {
+      const col = new THREE.Color(p.color)
+      for (const tid of network(s, p.id)) {
+        const c = townPos(tid)
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(1.2 + i * 0.09, 1.27 + i * 0.09, 48),
+          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }),
+        )
+        ring.rotation.x = -Math.PI / 2
+        ring.position.set(c.x, c.y + 0.07, c.z)
+        this.territory.add(ring)
+      }
+    })
+  }
+
+  private syncGoods(key: string, b: Building): void {
+    const prev = this.goodsVis.get(key)
+    if (prev) this.scene.remove(prev)
+    const g = new THREE.Group()
+    let i = 0
+    for (const good of ['coal', 'copper', 'tin', 'bronze', 'machine'] as Good[]) {
+      for (let k = 0; k < (b.goods[good] ?? 0); k++, i++) {
+        const geo = good === 'bronze' || good === 'machine' ? new THREE.BoxGeometry(0.13, 0.06, 0.07) : new THREE.BoxGeometry(0.08, 0.08, 0.08)
+        const m = new THREE.Mesh(geo, mat(GOOD_COLOR[good], { metalness: good === 'coal' ? 0.05 : 0.75, roughness: 0.35 }))
+        m.position.set(0.3 + (i % 3) * 0.1, 0.05 + Math.floor(i / 3) * 0.085, -0.12 + (Math.floor(i / 3) % 2) * 0.05)
+        m.castShadow = true
+        g.add(m)
+      }
+    }
+    const [town, slot] = key.split(':')
+    const pp = plotPos(town, Number(slot))
+    g.position.copy(pp).setY(pp.y + 0.09)
+    this.scene.add(g)
+    this.goodsVis.set(key, g)
+  }
+
+  private makeOwnedLink(id: string, kind: 'river' | 'land', color: number): THREE.Object3D {
+    const curve = linkCurve(id)
+    const g = new THREE.Group()
+    if (kind === 'river') {
+      const lane = new THREE.Mesh(new THREE.TubeGeometry(curve, 30, 0.05, 8, false), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9 }))
+      g.add(lane)
+      const barge = this.makeShip(0x5b3e22, color)
+      barge.scale.setScalar(0.8)
+      barge.userData.curve = curve
+      barge.userData.speed = 0.05 + hash(id.length, 3) * 0.04
+      barge.userData.t = hash(id.length, 7)
+      g.add(barge)
+    } else {
+      const road = new THREE.Mesh(new THREE.TubeGeometry(curve, 30, 0.07, 4, false), mat(0x8b8170, { roughness: 1 }))
+      road.scale.y = 0.4
+      g.add(road)
+      const edge = new THREE.Mesh(new THREE.TubeGeometry(curve, 30, 0.025, 6, false), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.8 }))
+      edge.position.y = 0.04
+      g.add(edge)
+      // Milestones in the owner's colour.
+      for (let t = 0.2; t < 0.9; t += 0.3) {
+        const p = curve.getPoint(t)
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.06), mat(color))
+        post.position.copy(p).add(new THREE.Vector3(0, 0.08, 0))
+        g.add(post)
+      }
+    }
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true })
+    g.scale.setScalar(1)
+    return g
+  }
+
+  private makeBuilding(b: Building, color: number): THREE.Group {
+    const g = new THREE.Group()
+    const s = 0.8 + b.level * 0.15
+    const own = mat(color, { roughness: 0.55 })
+    const stone = mat(0x8a8276, { roughness: 0.9 })
+    const wood = mat(0x5a3b20, { roughness: 0.8 })
+    if (b.kind === 'mine') {
+      const ore = mat(GOOD_COLOR[b.deposit ?? 'coal'], { flatShading: true, roughness: 0.5, metalness: b.deposit === 'coal' ? 0.1 : 0.6 })
+      const mound = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.2, 7), ore)
+      mound.position.y = 0.1
+      g.add(mound)
+      for (const sx of [-0.14, 0.14]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 0.04), wood)
+        leg.position.set(sx, 0.32, 0)
+        leg.rotation.z = sx > 0 ? -0.15 : 0.15
+        g.add(leg)
+      }
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.02, 6, 16), mat(0x2b2b2b, { metalness: 0.8 }))
+      wheel.position.set(0, 0.56, 0)
+      wheel.userData.spin = true
+      g.add(wheel)
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.01), own)
+      flag.position.set(0.08, 0.72, 0)
+      g.add(flag)
+    } else if (b.kind === 'smelter') {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.36, 10), stone)
+      base.position.y = 0.18
+      g.add(base)
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.06, 10), own)
+      band.position.y = 0.3
+      g.add(band)
+      const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.45, 8), mat(0x5a3a26))
+      chimney.position.set(0.12, 0.55, -0.05)
+      g.add(chimney)
+      const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.08, 12), new THREE.MeshStandardMaterial({ color: 0xffa040, emissive: 0xff6a10, emissiveIntensity: 3.5 }))
+      mouth.position.set(0, 0.14, 0.24)
+      g.add(mouth)
+      g.userData.smoke = new THREE.Vector3(0.12, 0.8, -0.05)
+    } else {
+      const hall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.36), stone)
+      hall.position.y = 0.15
+      g.add(hall)
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.22, 4), own)
+      roof.rotation.y = Math.PI / 4
+      roof.position.y = 0.41
+      roof.scale.set(1, 1, 0.75)
+      g.add(roof)
+      const anvil = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.06), mat(0x2a2d33, { metalness: 0.9, roughness: 0.3 }))
+      anvil.position.set(0, 0.04, 0.3)
+      g.add(anvil)
+      const hammer = new THREE.Group()
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.2, 0.02), wood)
+      handle.position.y = 0.1
+      const headM = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.05), mat(0x2a2d33, { metalness: 0.9 }))
+      headM.position.y = 0.2
+      hammer.add(handle, headM)
+      hammer.position.set(0.06, 0.08, 0.3)
+      g.add(hammer)
+      this.hammers.push(hammer)
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), new THREE.MeshStandardMaterial({ color: 0xffb060, emissive: 0xff7a20, emissiveIntensity: 2.6 }))
+      glow.position.set(0, 0.12, 0.181)
+      g.add(glow)
+      g.userData.smoke = new THREE.Vector3(-0.1, 0.6, 0)
+    }
+    // Pennants show the level.
+    for (let i = 0; i < b.level; i++) {
+      const p = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.09, 4), own)
+      p.position.set(-0.3 + i * 0.08, 0.06, 0.28)
+      p.rotation.z = Math.PI / 2
+      g.add(p)
+    }
+    g.scale.setScalar(s)
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true } })
+    return g
+  }
+
+  // ------------------------------------------------------------ highlights
+
+  highlight(s: GameState): void {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220)
+    for (const [id, ring] of this.townRings) {
+      const on = this.selectable.towns.has(id)
+      const m = ring.material as THREE.MeshStandardMaterial
+      m.opacity = on ? 0.5 + pulse * 0.5 : 0
+      m.emissiveIntensity = on ? 1.5 + pulse : 0
+    }
+    for (const [key, pad] of this.plotPads) {
+      const on = this.selectable.plots.has(key)
+      const m = pad.material as THREE.MeshStandardMaterial
+      m.emissiveIntensity = on ? 0.6 + pulse * 1.4 : 0
+    }
+    for (const [id, v] of this.linkVis) {
+      const on = this.selectable.links.has(id)
+      const m = v.guide.material as THREE.MeshStandardMaterial
+      m.opacity = on ? 0.6 + pulse * 0.4 : 0.22
+      m.emissiveIntensity = on ? 1.4 + pulse * 1.6 : 0.25
+      v.guide.scale.setScalar(1)
+    }
+    for (const [key, v] of this.buildingVis) {
+      const on = this.selectable.buildings.has(key)
+      v.group.position.y = plotPos(key.split(':')[0], Number(key.split(':')[1])).y + 0.09 + (on ? 0.05 + pulse * 0.08 : 0)
+    }
+    void s
+  }
+
+  setTurn(s: GameState, currentId: string | null): void {
+    for (const [pid, k] of this.keeps) {
+      const on = pid === currentId
+      gsap.to(k.halo, { intensity: on ? 18 : 0, duration: 0.5 })
+      gsap.to(k.arm.rotation, { x: on ? -2.6 : -0.4, duration: 0.6, ease: 'back.out(2)' })
+    }
+    void s
+  }
+
+  // ------------------------------------------------------------ effects
+
+  private keepOf(pid: string): THREE.Vector3 {
+    const k = this.keeps.get(pid)
+    return k ? k.pos.clone().setY(0.2) : new THREE.Vector3(0, 0, 14)
+  }
+
+  private makeWorker(color: number): THREE.Group {
+    const g = new THREE.Group()
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.14, 4, 8), mat(color))
+    body.position.y = 0.16
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), mat(0xe0b896))
+    head.position.y = 0.33
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.08, 8), mat(0x3a2814))
+    hat.position.y = 0.4
+    const tool = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 0.02), mat(0x5a3b20))
+    tool.position.set(0.09, 0.2, 0)
+    tool.rotation.z = -0.5
+    g.add(body, head, hat, tool)
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true })
+    return g
+  }
+
+  /** A squad of workers marches from the player's keep to a place on the board. */
+  sendWorkers(pid: string, color: string, to: THREE.Vector3, count = 3, dur = 1.1): Promise<void> {
+    const from = this.keepOf(pid)
+    const col = new THREE.Color(color).getHex()
+    const done: Promise<void>[] = []
+    for (let i = 0; i < count; i++) {
+      const w = this.makeWorker(col)
+      w.scale.setScalar(1.7)
+      const off = new THREE.Vector3((i - (count - 1) / 2) * 0.35, 0, (i % 2) * 0.25)
+      w.position.copy(from).add(off)
+      this.fxLayer.add(w)
+      const target = to.clone().add(off.clone().multiplyScalar(0.6))
+      w.lookAt(target.x, w.position.y, target.z)
+      const st = { t: 0 }
+      done.push(new Promise((res) => {
+        gsap.to(st, {
+          t: 1, duration: dur, delay: i * 0.08, ease: 'power1.inOut',
+          onUpdate: () => {
+            const x = from.x + off.x + (target.x - from.x - off.x) * st.t
+            const z = from.z + off.z + (target.z - from.z - off.z) * st.t
+            const ground = Math.max(WATER_Y, Math.abs(x) < BOARD_W / 2 && Math.abs(z) < BOARD_D / 2 ? heightAt(x, z) : -0.3)
+            w.position.set(x, ground + Math.abs(Math.sin(st.t * 28)) * 0.08, z)
+            w.scale.setScalar(1.7 - st.t * 0.7)
+          },
+          onComplete: () => {
+            gsap.to(w.position, { y: w.position.y + 0.25, duration: 0.15, yoyo: true, repeat: 3 })
+            gsap.to(w.scale, { x: 0.01, y: 0.01, z: 0.01, duration: 0.35, delay: 0.5, onComplete: () => { this.fxLayer.remove(w); res() } })
+          },
+        })
+      }))
+    }
+    return Promise.all(done).then(() => undefined)
+  }
+
+  /** A cart or barge carries one good along a path of towns. */
+  carry(good: Good, path: string[], dur = 0.9): Promise<void> {
+    if (path.length < 2) return Promise.resolve()
+    const pts = path.map((id) => townPos(id).add(new THREE.Vector3(0, 0.25, 0)))
+    const curve = new THREE.CatmullRomCurve3(pts)
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.2), mat(GOOD_COLOR[good], { metalness: 0.6, roughness: 0.3, emissive: GOOD_COLOR[good], emissiveIntensity: 0.5 }))
+    crate.castShadow = true
+    this.fxLayer.add(crate)
+    const st = { t: 0 }
+    return new Promise((res) => {
+      gsap.to(st, {
+        t: 1, duration: dur * Math.min(2.2, path.length / 2), ease: 'power1.inOut',
+        onUpdate: () => {
+          const p = curve.getPoint(st.t)
+          crate.position.set(p.x, p.y + Math.sin(st.t * Math.PI) * 0.6, p.z)
+          crate.rotation.y += 0.1
+        },
+        onComplete: () => { this.fxLayer.remove(crate); res() },
+      })
+    })
+  }
+
+  floatText(text: string, at: THREE.Vector3, color = '#ffe08a'): void {
+    const sp = textSprite(text, { size: 60, color, bold: true })
+    sp.position.copy(at).add(new THREE.Vector3(0, 0.8, 0))
+    this.fxLayer.add(sp)
+    gsap.to(sp.position, { y: sp.position.y + 1.6, duration: 1.6, ease: 'power2.out' })
+    gsap.to(sp.material, { opacity: 0, duration: 0.6, delay: 1.0, onComplete: () => { this.fxLayer.remove(sp) } })
+  }
+
+  burst(at: THREE.Vector3, color: number, n = 26): void {
+    for (let i = 0; i < n; i++) {
+      const sp = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), new THREE.MeshBasicMaterial({ color }))
+      sp.position.copy(at)
+      this.fxLayer.add(sp)
+      const a = Math.random() * Math.PI * 2, up = 0.6 + Math.random() * 1.4, r = 0.5 + Math.random()
+      gsap.to(sp.position, { x: at.x + Math.cos(a) * r, y: at.y + up, z: at.z + Math.sin(a) * r, duration: 0.7, ease: 'power2.out' })
+      gsap.to(sp.scale, { x: 0.01, y: 0.01, z: 0.01, duration: 0.7, delay: 0.2, onComplete: () => { this.fxLayer.remove(sp) } })
+    }
+  }
+
+  quake(power = 0.35): void { this.shake = power }
+
+  townPoint(id: string): THREE.Vector3 { return townPos(id) }
+  linkPoint(id: string): THREE.Vector3 { return linkCurve(id).getPoint(0.5) }
+
+  /** Play one action's effects; resolves when the animation is done. */
+  async play(fx: Fx[], s: GameState, fast: boolean): Promise<void> {
+    const color = (pid: string) => s.players.find((p) => p.id === pid)?.color ?? '#ffffff'
+    const speed = fast ? 0.55 : 1
+    const jobs: Promise<void>[] = []
+    let moves = 0
+    for (const f of fx) {
+      if (f.kind === 'build') {
+        const at = plotPos(f.town, f.slot)
+        jobs.push(this.sendWorkers(f.who, color(f.who), at, 4, 1.0 * speed).then(() => this.burst(at.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffd27a)))
+      } else if (f.kind === 'route') {
+        jobs.push(this.sendWorkers(f.who, color(f.who), this.linkPoint(f.link), 5, 1.0 * speed))
+      } else if (f.kind === 'produce') {
+        const at = plotPos(f.town, f.slot)
+        jobs.push(this.sendWorkers(s.plots[f.town][f.slot]!.owner, color(s.plots[f.town][f.slot]!.owner), at, 2, 0.8 * speed).then(() => {
+          this.floatText(`+${f.n} ${f.good === 'machine' ? 'arms' : f.good}`, at, '#cfe8ff')
+        }))
+      } else if (f.kind === 'move' && moves < 8) {
+        moves++
+        jobs.push(new Promise<void>((r) => setTimeout(r, moves * 90 * speed)).then(() => this.carry(f.good, f.path, 0.8 * speed)))
+      } else if (f.kind === 'deliver') {
+        const at = townPos(f.contract.town)
+        jobs.push(new Promise<void>((r) => setTimeout(r, 700 * speed)).then(() => {
+          this.burst(at.clone().add(new THREE.Vector3(0, 0.5, 0)), 0xffe08a, 50)
+          this.floatText(`+£${f.contract.money}  +${f.contract.vp} VP`, at)
+          this.quake(0.15)
+        }))
+      } else if (f.kind === 'pay' && f.why === 'toll') {
+        const k = this.keepOf(f.to)
+        this.floatText(`+£${f.amount} toll`, k.clone().setY(3), '#ffd27a')
+      } else if (f.kind === 'trade') {
+        this.floatText(`+£${f.earned}`, this.keepOf(f.who).setY(3.2), '#ffe08a')
+      } else if (f.kind === 'tick') {
+        this.quake(0.4)
+      }
+    }
+    await Promise.all(jobs)
+  }
+
+  // ------------------------------------------------------------ frame
+
+  private makeSmokeTexture(): THREE.Texture {
+    const c = document.createElement('canvas')
+    c.width = c.height = 64
+    const g = c.getContext('2d')!
+    const grd = g.createRadialGradient(32, 32, 2, 32, 32, 30)
+    grd.addColorStop(0, 'rgba(200,190,180,.55)')
+    grd.addColorStop(1, 'rgba(200,190,180,0)')
+    g.fillStyle = grd
+    g.fillRect(0, 0, 64, 64)
+    return new THREE.CanvasTexture(c)
+  }
+
+  private frame(): void {
+    const dt = Math.min(0.05, this.clock.getDelta())
+    const t = this.clock.elapsedTime
+    this.controls.update()
+    // Water shimmer.
+    const wm = this.water.material as THREE.MeshStandardMaterial
+    wm.emissiveIntensity = 0.5 + Math.sin(t * 1.3) * 0.12
+    // Torch flicker.
+    this.torches.forEach((l, i) => { l.intensity = 3.4 + Math.sin(t * 13 + i * 1.7) * 0.6 + Math.sin(t * 7.3 + i) * 0.4 })
+    // Commanders breathe; banners sway.
+    for (const k of this.keeps.values()) {
+      k.commander.position.y = 1.6 + Math.sin(t * 1.6) * 0.02
+      k.banner.rotation.y = Math.sin(t * 1.8) * 0.18
+    }
+    for (const h of this.hammers) h.rotation.z = Math.max(0, Math.sin(t * 6)) * 1.4 - 0.4
+    // Barges drift along their lanes; mine wheels turn; chimneys smoke.
+    this.scene.traverse((o) => {
+      if (o.userData.curve) {
+        o.userData.t = (o.userData.t + dt * o.userData.speed) % 1
+        const c = o.userData.curve as THREE.CatmullRomCurve3
+        const p = c.getPoint(o.userData.t)
+        o.position.copy(p)
+        const q = c.getTangent(o.userData.t)
+        o.rotation.y = Math.atan2(q.x, q.z) - Math.PI / 2
+      }
+      if (o.userData.spin) o.rotation.z += dt * 2
+      if (o.userData.bob !== undefined) o.position.y = Math.sin(t * 1.4 + o.userData.bob) * 0.02
+    })
+    if (Math.random() < dt * 6) {
+      for (const { group } of this.buildingVis.values()) {
+        const at = group.userData.smoke as THREE.Vector3 | undefined
+        if (!at || Math.random() > 0.35) continue
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTex, transparent: true, depthWrite: false, opacity: 0.7 }))
+        sp.position.copy(group.localToWorld(at.clone()))
+        sp.scale.setScalar(0.25)
+        this.fxLayer.add(sp)
+        this.smoke.push({ sp, life: 0, v: new THREE.Vector3((Math.random() - 0.5) * 0.1, 0.35, 0.08) })
+      }
+    }
+    for (let i = this.smoke.length - 1; i >= 0; i--) {
+      const sm = this.smoke[i]
+      sm.life += dt
+      sm.sp.position.addScaledVector(sm.v, dt)
+      sm.sp.scale.setScalar(0.25 + sm.life * 0.5)
+      ;(sm.sp.material as THREE.SpriteMaterial).opacity = Math.max(0, 0.6 - sm.life * 0.3)
+      if (sm.life > 2) { this.fxLayer.remove(sm.sp); this.smoke.splice(i, 1) }
+    }
+    if (this.shake > 0.001) {
+      const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake
+      this.camera.position.x += sx
+      this.camera.position.y += sy
+      this.shake *= 0.88
+    }
+    this.composer.render()
+  }
+}
